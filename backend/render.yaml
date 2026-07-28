@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: seo-genhub-backend
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: FRONTEND_URL
+        value: https://your-vercel-app-url.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PUTER_API_TOKEN
+        sync: false
+      - key: SERP_API_KEY
+        sync: false
+    disk:
+      name: sqlite-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: content-writing-tool
+    env: node
+    buildCommand: "npm run install:all && npm run build"
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/seo_tool.db
+      - key: PORT
+        value: 3001
+    disk:
+      name: sqlite-data
+      mountPath: /data
+      sizeGB: 1
