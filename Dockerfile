@@ -17,8 +17,8 @@ WORKDIR /app
 COPY package.json ./
 
 # Copy package files for caching
-COPY frontend/package.json ./frontend/
-COPY backend/package.json ./backend/
+COPY frontend/package*.json ./frontend/
+COPY backend/package*.json ./backend/
 
 # Install dependencies for both frontend and backend
 RUN npm run install:all
