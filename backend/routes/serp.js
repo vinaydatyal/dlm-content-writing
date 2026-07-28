@@ -182,55 +182,7 @@ async function fetchGoogleCSE(keyword) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIER 3: Puter AI Fallback
-// ─────────────────────────────────────────────────────────────────────────────
-let puter;
-async function getPuter() {
-  if (!puter) {
-    const mod = await import('@heyputer/puter.js');
-    puter = mod.puter;
-    if (process.env.PUTER_API_TOKEN) puter.setAuthToken(process.env.PUTER_API_TOKEN);
-  }
-  return puter;
-}
-
-async function fetchAiSerpData(keyword) {
-  const ai = await getPuter();
-
-  const prompt = `You are an expert SEO analyst. Simulate a realistic Google SERP analysis for the keyword: "${keyword}".
-Return ONLY a valid JSON object (no markdown, no explanation) with this structure:
-{
-  "top_results": [
-    { "position": 1, "title": "...", "url": "https://...", "snippet": "..." }
-  ],
-  "people_also_ask": ["question 1?", "question 2?", "question 3?", "question 4?", "question 5?"],
-  "related_searches": ["term 1", "term 2", "term 3", "term 4", "term 5", "term 6"],
-  "avg_word_count": 1800,
-  "serp_features": ["featured_snippet"],
-  "content_gaps": ["Crucial Topic 1 covered by top competitors", "Important Entity 2", "Must-have Section 3"],
-  "dominant_content_type": "how-to guide"
-}
-Rules:
-- Generate 8 realistic top_results using real-looking authoritative domains relevant to the niche.
-- PAA questions must be genuinely specific.
-- Extract 3-5 critical content gaps (topics that the top 3 ranking competitors cover comprehensively that a new article MUST include to compete).
-- Return ONLY JSON.`;
-
-  const resp = await ai.ai.chat(prompt);
-  const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || '');
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
-
-  return {
-    keyword,
-    source: 'ai_powered_fallback',
-    ...parsed,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN ROUTE: Puppeteer -> SerpAPI -> Puter AI Fallback
+// MAIN ROUTE: Puppeteer -> SerpAPI/Google CSE
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/analyze', async (req, res) => {
   const { keyword, location, language } = req.body;
@@ -248,7 +200,7 @@ router.post('/analyze', async (req, res) => {
        throw new Error("No results found in DOM");
     }
   } catch (err) {
-    console.warn(`[SERP] Chrome scraping failed: ${err.message}. Falling back to SerpAPI...`);
+    console.warn(`[SERP] Chrome scraping failed: ${err.message}. Falling back to Google CSE...`);
     
     // Tier 2: Google CSE
     try {
@@ -257,18 +209,8 @@ router.post('/analyze', async (req, res) => {
        console.log(`[SERP] Google CSE successful.`);
        return res.json(cseResult);
     } catch(cseErr) {
-       console.warn(`[SERP] Google CSE Fallback failed: ${cseErr.message}. Falling back to AI...`);
-       
-       // Tier 3: Puter AI
-       try {
-         console.log(`[SERP] Tier 3: Attempting Puter AI Fallback for: "${keyword}"...`);
-         const aiResult = await fetchAiSerpData(keyword);
-         console.log(`[SERP] Puter AI successful.`);
-         return res.json(aiResult);
-       } catch(aiErr) {
-         console.error(`[SERP] AI Fallback failed as well: ${aiErr.message}`);
-         return res.status(500).json({ error: 'All SERP data sources failed.' });
-       }
+       console.error(`[SERP] Google CSE Fallback failed as well: ${cseErr.message}`);
+       return res.status(500).json({ error: `All SERP data sources failed. Puppeteer error: ${err.message}. CSE error: ${cseErr.message}` });
     }
   }
 });
