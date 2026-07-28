@@ -1,26 +1,21 @@
 // backend/db.js
-const path = require('path');
-const fs = require('fs');
-const initSqlJs = require('sql.js');
+const { Pool } = require('pg');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'seo_tool.db');
-const dataDir = path.dirname(DB_PATH);
-
-let db;
+let pool;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'editor',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_login DATETIME
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS clients (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     website_url TEXT,
     industry TEXT,
@@ -39,12 +34,12 @@ const SCHEMA = `
     company_credentials TEXT DEFAULT '',
     preferred_citations TEXT DEFAULT '[]',
     created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     client_id INTEGER,
     keyword TEXT NOT NULL,
     secondary_keywords TEXT DEFAULT '[]',
@@ -53,12 +48,12 @@ const SCHEMA = `
     target_word_count INTEGER DEFAULT 1500,
     status TEXT DEFAULT 'brief',
     created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS articles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     project_id INTEGER,
     serp_data TEXT DEFAULT '{}',
     brief TEXT DEFAULT '',
@@ -73,12 +68,12 @@ const SCHEMA = `
     keyword_density REAL DEFAULT 0,
     custom_instructions TEXT,
     status TEXT DEFAULT 'draft',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS bulk_jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     total INTEGER DEFAULT 0,
     completed INTEGER DEFAULT 0,
@@ -86,107 +81,71 @@ const SCHEMA = `
     status TEXT DEFAULT 'pending',
     items TEXT DEFAULT '[]',
     created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS usage_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER,
     action TEXT NOT NULL,
     tokens_used INTEGER DEFAULT 0,
     model TEXT DEFAULT 'claude-3-5-sonnet-20241022',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 `;
 
+// Helper: convert ? to $1, $2 for Postgres
+function toPgQuery(sql, params) {
+  let i = 1;
+  const pgSql = sql.replace(/\?/g, () => `$${i++}`);
+  return { text: pgSql, values: params || [] };
+}
+
 async function initDb() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set. A PostgreSQL connection string is required.");
   }
+  
+  pool = new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
 
-  const SQL = await initSqlJs();
-
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
-
-  db.run(SCHEMA);
-
-  // Migrations for existing DB
-  try { db.run('ALTER TABLE clients ADD COLUMN reference_content TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN niche_category TEXT DEFAULT "general"'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN competitors TEXT DEFAULT "[]"'); } catch (e) {}
-  try { db.run('ALTER TABLE articles ADD COLUMN custom_instructions TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN author_name TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN author_credentials TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN author_bio TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN company_credentials TEXT DEFAULT ""'); } catch (e) {}
-  try { db.run('ALTER TABLE clients ADD COLUMN preferred_citations TEXT DEFAULT "[]"'); } catch (e) {}
-  saveDb();
-  return db;
-}
-
-function saveDb() {
-  if (db) {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(DB_PATH, buffer);
+  try {
+    await pool.query(SCHEMA);
+  } catch (err) {
+    console.error("Failed to execute schema:", err);
   }
 }
 
-// Save on process exit
-process.on('exit', saveDb);
-process.on('SIGINT', () => { saveDb(); process.exit(); });
-process.on('SIGTERM', () => { saveDb(); process.exit(); });
-
-function getDb() {
-  return db;
+async function run(sql, params = []) {
+  const query = toPgQuery(sql, params);
+  await pool.query(query);
 }
 
-// Helper: run a statement and save
-function run(sql, params = []) {
-  db.run(sql, params);
-  saveDb();
+async function get(sql, params = []) {
+  const query = toPgQuery(sql, params);
+  const result = await pool.query(query);
+  return result.rows[0] || null;
 }
 
-// Helper: get one row
-function get(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  if (stmt.step()) {
-    const row = stmt.getAsObject();
-    stmt.free();
-    return row;
-  }
-  stmt.free();
-  return null;
+async function all(sql, params = []) {
+  const query = toPgQuery(sql, params);
+  const result = await pool.query(query);
+  return result.rows;
 }
 
-// Helper: get all rows
-function all(sql, params = []) {
-  const stmt = db.prepare(sql);
-  const rows = [];
-  stmt.bind(params);
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return rows;
-}
-
-// Helper: insert and return lastID
-function insert(sql, params = []) {
-  db.run(sql, params);
-  const result = db.exec('SELECT last_insert_rowid() as id');
-  saveDb();
-  if (result && result[0] && result[0].values[0]) {
-    return result[0].values[0][0];
+async function insert(sql, params = []) {
+  const query = toPgQuery(sql, params);
+  // append RETURNING id to get the inserted row id
+  query.text += ' RETURNING id';
+  const result = await pool.query(query);
+  if (result.rows && result.rows.length > 0) {
+    return result.rows[0].id;
   }
   return null;
 }
 
-module.exports = { initDb, getDb, run, get, all, insert, saveDb };
+module.exports = { initDb, run, get, all, insert };

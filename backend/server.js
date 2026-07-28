@@ -30,25 +30,33 @@ app.get('/api/health', (req, res) => {
 });
 
 // Dashboard stats
-app.get('/api/stats', require('./middleware/auth').authenticate, (req, res) => {
+app.get('/api/stats', require('./middleware/auth').authenticate, async (req, res) => {
   try {
     const db = require('./db');
-    const stats = {
-      total_clients: db.get('SELECT COUNT(*) as count FROM clients').count,
-      total_projects: db.get('SELECT COUNT(*) as count FROM projects').count,
-      total_articles: db.get('SELECT COUNT(*) as count FROM articles').count,
-      articles_this_week: db.get(
-        "SELECT COUNT(*) as count FROM articles WHERE created_at >= datetime('now', '-7 days')"
-      ).count,
-      total_words: db.get('SELECT COALESCE(SUM(word_count), 0) as total FROM articles').total,
-      tokens_used: db.get('SELECT COALESCE(SUM(tokens_used), 0) as total FROM usage_log WHERE user_id = ?', [req.user.id]).total,
-      recent_projects: db.all(
+    const [clientsRes, projectsRes, articlesRes, weekRes, wordsRes, tokensRes, recentRes] = await Promise.all([
+      db.get('SELECT COUNT(*) as count FROM clients'),
+      db.get('SELECT COUNT(*) as count FROM projects'),
+      db.get('SELECT COUNT(*) as count FROM articles'),
+      db.get("SELECT COUNT(*) as count FROM articles WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'"),
+      db.get('SELECT COALESCE(SUM(word_count), 0) as total FROM articles'),
+      db.get('SELECT COALESCE(SUM(tokens_used), 0) as total FROM usage_log WHERE user_id = $1', [req.user.id]),
+      db.all(
         `SELECT p.*, c.name as client_name, c.color as client_color, a.word_count, a.status as article_status
          FROM projects p
          LEFT JOIN clients c ON p.client_id = c.id
          LEFT JOIN articles a ON a.project_id = p.id
          ORDER BY p.created_at DESC LIMIT 5`
-      ),
+      )
+    ]);
+
+    const stats = {
+      total_clients: parseInt(clientsRes.count || 0, 10),
+      total_projects: parseInt(projectsRes.count || 0, 10),
+      total_articles: parseInt(articlesRes.count || 0, 10),
+      articles_this_week: parseInt(weekRes.count || 0, 10),
+      total_words: parseInt(wordsRes.total || 0, 10),
+      tokens_used: parseInt(tokensRes.total || 0, 10),
+      recent_projects: recentRes,
     };
     res.json(stats);
   } catch (err) {

@@ -150,8 +150,8 @@ Format as a clean, structured brief that a writer can follow.`;
     const brief = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
     const tokensUsed = 500; // Puter doesn't always expose token usage perfectly, mocking a standard count
 
-    db.run(
-      'INSERT INTO usage_log (user_id, action, tokens_used) VALUES (?, ?, ?)',
+    await db.run(
+      'INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
       [req.user.id, 'generate_brief', tokensUsed]
     );
 
@@ -213,7 +213,7 @@ Return ONLY valid JSON array, no other text.`;
     }
 
     const tokensUsed = 300;
-    db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES (?, ?, ?)',
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
       [req.user.id, 'generate_outline', tokensUsed]);
 
     res.json({ outline, tokens_used: tokensUsed });
@@ -299,7 +299,7 @@ ${custom_instructions ? `\nCUSTOM INSTRUCTIONS FOR THIS ARTICLE:\n${custom_instr
     }
 
     const totalTokens = 500;
-    db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES (?, ?, ?)',
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
       [req.user.id, 'generate_section', totalTokens]);
 
     res.write(`data: ${JSON.stringify({ done: true, tokens_used: totalTokens })}\n\n`);
@@ -362,7 +362,7 @@ Return ONLY valid JSON.`;
     }
 
     const tokensUsed = 300;
-    db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES (?, ?, ?)',
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
       [req.user.id, 'polish_content', tokensUsed]);
 
     res.json({ ...polishData, tokens_used: tokensUsed });
@@ -416,7 +416,7 @@ Return ONLY the full rewritten article in markdown. No preamble, no explanation.
       }
     }
 
-    db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES (?, ?, ?)',
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
       [req.user.id, 'humanize', 600]);
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -432,15 +432,15 @@ Return ONLY the full rewritten article in markdown. No preamble, no explanation.
 // GET /api/content/usage
 // Get usage stats for current user
 // ─────────────────────────────────────────
-router.get('/usage', (req, res) => {
+router.get('/usage', async (req, res) => {
   try {
-    const stats = db.all(
+    const stats = await db.all(
       `SELECT action, SUM(tokens_used) as tokens, COUNT(*) as count
-       FROM usage_log WHERE user_id = ? GROUP BY action`,
+       FROM usage_log WHERE user_id = $1 GROUP BY action`,
       [req.user.id]
     );
-    const total = db.get(
-      'SELECT SUM(tokens_used) as total_tokens, COUNT(*) as total_calls FROM usage_log WHERE user_id = ?',
+    const total = await db.get(
+      'SELECT SUM(tokens_used) as total_tokens, COUNT(*) as total_calls FROM usage_log WHERE user_id = $1',
       [req.user.id]
     );
     res.json({ by_action: stats, ...total });

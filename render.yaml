@@ -1,16 +1,20 @@
 services:
   - type: web
     name: content-writing-tool
-    env: node
+    env: docker
     plan: free
-    buildCommand: "npm run install:all && npm run build"
-    startCommand: "npm start"
     envVars:
-      - key: NODE_VERSION
-        value: 20
       - key: NODE_ENV
         value: production
-      - key: DB_PATH
-        value: ./data/seo_tool.db
       - key: PORT
         value: 3001
+      - key: DATABASE_URL
+        fromDatabase:
+          name: content-db
+          property: connectionString
+
+databases:
+  - name: content-db
+    databaseName: content_db
+    user: content_user
+    plan: free
