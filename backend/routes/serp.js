@@ -17,9 +17,12 @@ async function getBrowser() {
   if (!browserInstance) {
     browserInstance = await puppeteer.launch({
       headless: "new",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
         '--disable-blink-features=AutomationControlled',
         '--disable-infobars',
         '--window-size=1280,800',
@@ -138,8 +141,8 @@ async function fetchPuppeteerSERP(keyword) {
 // TIER 2: Google Custom Search API (Fallback)
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchGoogleCSE(keyword) {
-  const apiKey = process.env.GOOGLE_CSE_API_KEY;
-  const cx = process.env.GOOGLE_CSE_ID;
+  const apiKey = process.env.GOOGLE_CSE_API_KEY || process.env.GOOGLE_SEARCH_API_KEY;
+  const cx = process.env.GOOGLE_CSE_ID || process.env.GOOGLE_SEARCH_ENGINE_ID;
   
   if (!apiKey || !cx) {
     throw new Error('GOOGLE_CSE_API_KEY or GOOGLE_CSE_ID not configured properly');
