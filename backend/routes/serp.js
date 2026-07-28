@@ -60,8 +60,25 @@ async function fetchPuppeteerSERP(keyword) {
       throw new Error("CAPTCHA_DETECTED");
     }
 
+    // Attempt to dismiss cookie consent (common on headless browsers)
+    try {
+      // puppeteer pseudo-selector for text
+      const acceptBtn = await page.$('button::-p-text(Accept all)');
+      if (acceptBtn) {
+        await acceptBtn.click();
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch(e) {
+      // Ignore if no cookie banner
+    }
+
     // Wait for the main search results div
-    await page.waitForSelector('#search', { timeout: 10000 });
+    try {
+      await page.waitForSelector('#search', { timeout: 10000 });
+    } catch (e) {
+      const title = await page.title();
+      throw new Error(`Selector '#search' not found. Page title: "${title}". Google might be showing a CAPTCHA or blocking this IP.`);
+    }
 
     // Extract data directly from the DOM
     const serpData = await page.evaluate((keyword) => {
@@ -210,7 +227,19 @@ router.post('/analyze', async (req, res) => {
        return res.json(cseResult);
     } catch(cseErr) {
        console.error(`[SERP] Google CSE Fallback failed as well: ${cseErr.message}`);
-       return res.status(500).json({ error: `All SERP data sources failed. Puppeteer error: ${err.message}. CSE error: ${cseErr.message}` });
+       
+       let cseErrorMsg = cseErr.message;
+       if (cseErr.response && cseErr.response.status === 403) {
+         cseErrorMsg = "403 Forbidden. Your Google API key is invalid, lacks permissions for the Custom Search API, or has IP/referrer restrictions blocking Render.";
+       }
+       
+       return res.status(500).json({ 
+         error: `All SERP data sources failed.`,
+         details: {
+           puppeteer: err.message,
+           cse: cseErrorMsg
+         }
+       });
     }
   }
 });
