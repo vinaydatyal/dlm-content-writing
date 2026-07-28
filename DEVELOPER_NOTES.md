@@ -86,3 +86,21 @@ Your `/backend/.env` requires:
 - `JWT_SECRET` (For user sessions)
 - `PUTER_API_TOKEN` (For AI generation)
 - `SERP_API_KEY` (Tier 2 SERP fallback)
+
+---
+
+## ☁️ Deployment & Cloud Hosting (Render)
+
+The application is fully configured for automated deployment via **Render.com**. 
+
+### Why Render?
+The backend relies heavily on **SQLite** (`database.sqlite`). Hosting providers that use serverless architectures (like Vercel) wipe their temporary filesystems after every request, meaning a local SQLite database would be deleted repeatedly. Render allows for **Persistent Disks**, making it the ideal host.
+
+### Blueprint Automation (`render.yaml`)
+We use Infrastructure-as-Code via `render.yaml` to automate deployment. 
+- **Start / Build Commands:** The `package.json` in the root directory manages installing and building both the frontend and backend using `--prefix`. 
+- **Free Tier Limitations:** Currently, `render.yaml` is set to `plan: free` with NO persistent disk attached. **Gotcha:** This means the SQLite database will reset to empty whenever the server spins down due to inactivity (after 15 minutes). 
+- **Production Upgrade:** For a production deployment where data persists, edit `render.yaml`, change the plan from `free` to `starter`, and uncomment/add the `disk` block to mount `/data/seo_tool.db`.
+
+### GitHub Branching
+Render defaults to deploying from the `main` branch. Ensure code is pushed via `git push origin main`. If you see errors about missing `render.yaml`, ensure your branch isn't named `master` in GitHub, or configure the Render branch dropdown manually.
