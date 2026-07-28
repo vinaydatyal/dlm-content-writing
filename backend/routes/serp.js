@@ -135,48 +135,45 @@ async function fetchPuppeteerSERP(keyword) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIER 2: SerpAPI Fallback
+// TIER 2: Google Custom Search API (Fallback)
 // ─────────────────────────────────────────────────────────────────────────────
-async function fetchSerpAPI(keyword, location = 'United States', language = 'en') {
-  const apiKey = process.env.SERP_API_KEY;
-  if (!apiKey || apiKey.startsWith('your-')) {
-    throw new Error('SERP_API_KEY not configured properly');
+async function fetchGoogleCSE(keyword) {
+  const apiKey = process.env.GOOGLE_CSE_API_KEY;
+  const cx = process.env.GOOGLE_CSE_ID;
+  
+  if (!apiKey || !cx) {
+    throw new Error('GOOGLE_CSE_API_KEY or GOOGLE_CSE_ID not configured properly');
   }
 
-  const response = await axios.get('https://serpapi.com/search', {
+  const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
     params: {
+      key: apiKey,
+      cx: cx,
       q: keyword,
-      location,
-      hl: language,
-      gl: 'us',
       num: 10,
-      api_key: apiKey,
     },
     timeout: 15000,
   });
 
-  const results = response.data.organic_results || [];
-  const paa = response.data.related_questions || [];
+  const results = response.data.items || [];
 
   if (!results.length) {
-    throw new Error('No organic results returned from SerpAPI');
+    throw new Error('No results returned from Google Custom Search');
   }
 
   return {
     keyword,
-    source: 'serpapi',
+    source: 'google_cse',
     top_results: results.slice(0, 10).map((r, i) => ({
       position: i + 1,
       title: r.title,
       url: r.link,
       snippet: r.snippet,
     })),
-    people_also_ask: paa.slice(0, 8).map(q => q.question),
-    related_searches: (response.data.related_searches || []).slice(0, 8).map(s => s.query),
+    people_also_ask: [], // CSE doesn't provide this easily
+    related_searches: [],
     avg_word_count: 1200 + Math.floor(Math.random() * 800),
-    serp_features: Object.keys(response.data).filter(k =>
-      ['featured_snippet', 'knowledge_graph', 'local_results', 'top_stories'].includes(k)
-    ),
+    serp_features: [],
     content_gaps: [],
   };
 }
@@ -250,14 +247,14 @@ router.post('/analyze', async (req, res) => {
   } catch (err) {
     console.warn(`[SERP] Chrome scraping failed: ${err.message}. Falling back to SerpAPI...`);
     
-    // Tier 2: SerpAPI
+    // Tier 2: Google CSE
     try {
-       console.log(`[SERP] Tier 2: Attempting SerpAPI for: "${keyword}"...`);
-       const serpApiResult = await fetchSerpAPI(keyword, location, language);
-       console.log(`[SERP] SerpAPI successful.`);
-       return res.json(serpApiResult);
-    } catch(serpApiErr) {
-       console.warn(`[SERP] SerpAPI Fallback failed: ${serpApiErr.message}. Falling back to AI...`);
+       console.log(`[SERP] Tier 2: Attempting Google CSE for: "${keyword}"...`);
+       const cseResult = await fetchGoogleCSE(keyword);
+       console.log(`[SERP] Google CSE successful.`);
+       return res.json(cseResult);
+    } catch(cseErr) {
+       console.warn(`[SERP] Google CSE Fallback failed: ${cseErr.message}. Falling back to AI...`);
        
        // Tier 3: Puter AI
        try {
