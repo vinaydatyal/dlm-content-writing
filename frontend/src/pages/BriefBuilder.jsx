@@ -313,7 +313,7 @@ export default function BriefBuilder() {
               </div>
             </div>
             
-            <div className="grid-2">
+            <div className="grid-sidebar">
               <div>
                 <h3 style={{ fontSize: '1rem', marginBottom: '16px' }}>Top Competitors</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
