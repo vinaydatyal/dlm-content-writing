@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Play, Download, Settings, RefreshCw, FileText, CheckCircle, AlertTriangle, Sparkles, Undo2, BarChart3, Trash2, Plus } from 'lucide-react';
+import { Play, Download, Settings, RefreshCw, FileText, CheckCircle, AlertTriangle, Sparkles, Undo2, BarChart3, Trash2, Plus, ShieldCheck } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -154,6 +154,12 @@ export default function ContentEditor() {
   const [contentHistory, setContentHistory] = useState([]);
   const [projectInstructions, setProjectInstructions] = useState('');
   
+  const [factChecking, setFactChecking] = useState(false);
+  const [factCheckResult, setFactCheckResult] = useState(null);
+  
+  const [generatingHooks, setGeneratingHooks] = useState(false);
+  const [hooks, setHooks] = useState(null);
+
   const contentRef = useRef(null);
 
   useEffect(() => {
@@ -395,10 +401,57 @@ export default function ContentEditor() {
     }
   };
 
+  const handleFactCheck = async () => {
+    if (!article.content || !clientProfile) {
+      addToast('Content and Client Profile are required.', 'error');
+      return;
+    }
+    setFactChecking(true);
+    setActiveTab('fact-check');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/content/fact-check`, {
+        content: article.content,
+        client_profile: clientProfile
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      
+      setFactCheckResult(res.data);
+    } catch (err) {
+      addToast('Failed to run compliance check', 'error');
+    } finally {
+      setFactChecking(false);
+    }
+  };
+
   const updateOutlineSection = (index, field, value) => {
     const newOutline = [...article.outline];
     newOutline[index][field] = value;
     setArticle(prev => ({ ...prev, outline: newOutline }));
+  };
+
+  const handleGenerateHooks = async () => {
+    setGeneratingHooks(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/content/hooks`, {
+        keyword: project.keyword,
+        brief: article.brief,
+        client_profile: clientProfile
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setHooks(res.data.hooks);
+    } catch (err) {
+      addToast('Failed to generate hooks', 'error');
+    } finally {
+      setGeneratingHooks(false);
+    }
+  };
+
+  const insertHook = (hookItem) => {
+    const newContent = `# ${hookItem.title}\n\n${hookItem.hook}\n\n` + (article.content || '');
+    pushHistory('Insert Hook');
+    setArticle(prev => ({ ...prev, content: newContent }));
+    saveArticle({ content: newContent });
+    addToast('Hook inserted', 'success');
   };
 
   const saveOutlineToDb = () => {
@@ -473,6 +526,18 @@ export default function ContentEditor() {
               ? <><RefreshCw size={16} className="spinner" style={{ border: 'none' }} /> Humanizing...</> 
               : <><Sparkles size={16} /> Humanize</>}
           </button>
+          
+          <button 
+            className="btn btn-secondary" 
+            onClick={handleFactCheck} 
+            disabled={!article.content || factChecking || !clientProfile}
+            style={{ color: '#38BDF8', borderColor: 'rgba(56,189,248,0.4)' }}
+          >
+            {factChecking 
+              ? <><RefreshCw size={16} className="spinner" style={{ border: 'none' }} /> Checking...</> 
+              : <><ShieldCheck size={16} /> Verify Brand</>}
+          </button>
+
           <button className="btn btn-primary" onClick={handlePolish} disabled={!article.content || polishing}>
             {polishing ? <RefreshCw size={16} className="spinner" style={{ border: 'none' }} /> : <CheckCircle size={16} />}
             Final Polish
@@ -485,23 +550,31 @@ export default function ContentEditor() {
         {/* LEFT SIDEBAR: Outline & Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="card" style={{ padding: '0' }}>
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
               <button 
                 onClick={() => setActiveTab('editor')}
-                style={{ flex: 1, padding: '12px', background: activeTab === 'editor' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'editor' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'editor' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'editor' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
               >Outline</button>
               <button 
                 onClick={() => setActiveTab('score')}
-                style={{ flex: 1, padding: '12px', background: activeTab === 'score' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'score' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'score' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'score' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
               >📊 Score</button>
               <button 
                 onClick={() => setActiveTab('brief')}
-                style={{ flex: 1, padding: '12px', background: activeTab === 'brief' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'brief' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'brief' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'brief' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
               >Brief</button>
               <button 
+                onClick={() => setActiveTab('hooks')}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'hooks' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'hooks' ? '#A78BFA' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+              >🪝 Hooks</button>
+              <button 
                 onClick={() => setActiveTab('polish')}
-                style={{ flex: 1, padding: '12px', background: activeTab === 'polish' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'polish' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'polish' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'polish' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
               >Meta</button>
+              <button 
+                onClick={() => setActiveTab('fact-check')}
+                style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'fact-check' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'fact-check' ? '#38BDF8' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
+              >🛡️ Brand Check</button>
             </div>
 
             <div style={{ padding: '16px', maxHeight: 'calc(100vh - 250px)', overflowY: 'auto' }}>
@@ -648,6 +721,35 @@ export default function ContentEditor() {
                 />
               )}
 
+              {activeTab === 'hooks' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <button className="btn btn-primary" onClick={handleGenerateHooks} disabled={generatingHooks} style={{ width: '100%', background: '#8B5CF6', color: '#fff', borderColor: '#8B5CF6' }}>
+                    {generatingHooks ? <><RefreshCw size={16} className="spinner" /> Brainstorming...</> : <><Sparkles size={16} /> Generate Hook Ideas</>}
+                  </button>
+
+                  {hooks && hooks.map((h, i) => (
+                    <div key={i} style={{ padding: '12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#A78BFA', marginBottom: '8px', textTransform: 'uppercase' }}>
+                        {h.type}
+                      </div>
+                      <h4 style={{ margin: '0 0 8px 0', color: 'var(--text-main)', fontSize: '1rem' }}>{h.title}</h4>
+                      <p style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                        {h.hook}
+                      </p>
+                      <button className="btn btn-secondary" onClick={() => insertHook(h)} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+                        Insert at Top
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {!hooks && !generatingHooks && (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Generate A/B testable titles and introductory hooks (Data-driven, Empathy-led, Curiosity) to grab your reader's attention instantly.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeTab === 'polish' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
@@ -689,6 +791,65 @@ export default function ContentEditor() {
                       <div style={{ padding: '12px', background: 'var(--bg-base)', borderRadius: '4px', fontSize: '0.8rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
                         {JSON.stringify(article.faq_schema, null, 2)}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'fact-check' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {!factCheckResult && !factChecking && (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)' }}>
+                      <ShieldCheck size={48} style={{ opacity: 0.5, marginBottom: '16px' }} />
+                      <p>Run a brand compliance check to ensure the AI didn't invent fake product features or use banned words.</p>
+                      <button className="btn btn-primary" onClick={handleFactCheck} style={{ marginTop: '16px' }}>
+                        Verify Brand Compliance
+                      </button>
+                    </div>
+                  )}
+
+                  {factChecking && (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <RefreshCw size={32} className="spinner" style={{ marginBottom: '16px' }} />
+                      <p>Analyzing content against client profile...</p>
+                    </div>
+                  )}
+
+                  {factCheckResult && !factChecking && (
+                    <div>
+                      <div style={{ 
+                        padding: '16px', 
+                        borderRadius: 'var(--radius-sm)', 
+                        background: factCheckResult.passed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${factCheckResult.passed ? '#10B981' : '#EF4444'}`,
+                        marginBottom: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
+                      }}>
+                        {factCheckResult.passed ? <CheckCircle size={24} color="#10B981" /> : <AlertTriangle size={24} color="#EF4444" />}
+                        <h3 style={{ margin: 0, color: factCheckResult.passed ? '#10B981' : '#EF4444' }}>
+                          {factCheckResult.passed ? 'Passed Compliance Check' : 'Violations Detected'}
+                        </h3>
+                      </div>
+
+                      {factCheckResult.violations && factCheckResult.violations.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <h4 style={{ color: '#EF4444', marginBottom: '8px' }}>Violations / Hallucinations:</h4>
+                          <ul style={{ paddingLeft: '20px', color: 'var(--text-main)', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {factCheckResult.violations.map((v, i) => <li key={i}>{v}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {factCheckResult.recommendations && factCheckResult.recommendations.length > 0 && (
+                        <div>
+                          <h4 style={{ color: '#38BDF8', marginBottom: '8px' }}>Recommendations:</h4>
+                          <ul style={{ paddingLeft: '20px', color: 'var(--text-main)', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {factCheckResult.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

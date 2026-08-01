@@ -1,5 +1,7 @@
 // backend/routes/clients.js
 const express = require('express');
+const axios = require('axios');
+const xml2js = require('xml2js');
 const { authenticate } = require('../middleware/auth');
 const db = require('../db');
 
@@ -16,6 +18,11 @@ router.get('/', async (req, res) => {
       competitors: JSON.parse(c.competitors || '[]'),
       internal_urls: JSON.parse(c.internal_urls || '[]'),
       preferred_citations: JSON.parse(c.preferred_citations || '[]'),
+      products_services: JSON.parse(c.products_services || '[]'),
+      buyer_personas: JSON.parse(c.buyer_personas || '[]'),
+      dos_and_donts: JSON.parse(c.dos_and_donts || '[]'),
+      good_examples: JSON.parse(c.good_examples || '[]'),
+      bad_examples: JSON.parse(c.bad_examples || '[]'),
     })));
   } catch (err) {
     console.error(err);
@@ -34,6 +41,11 @@ router.get('/:id', async (req, res) => {
       competitors: JSON.parse(client.competitors || '[]'),
       internal_urls: JSON.parse(client.internal_urls || '[]'),
       preferred_citations: JSON.parse(client.preferred_citations || '[]'),
+      products_services: JSON.parse(client.products_services || '[]'),
+      buyer_personas: JSON.parse(client.buyer_personas || '[]'),
+      dos_and_donts: JSON.parse(client.dos_and_donts || '[]'),
+      good_examples: JSON.parse(client.good_examples || '[]'),
+      bad_examples: JSON.parse(client.bad_examples || '[]'),
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch client' });
@@ -43,12 +55,12 @@ router.get('/:id', async (req, res) => {
 // Create client
 router.post('/', async (req, res) => {
   try {
-    const { name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations } = req.body;
+    const { name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations, products_services, buyer_personas, dos_and_donts, good_examples, bad_examples } = req.body;
     if (!name) return res.status(400).json({ error: 'Client name is required' });
 
     const id = await db.insert(
-      `INSERT INTO clients (name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+      `INSERT INTO clients (name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations, products_services, buyer_personas, dos_and_donts, good_examples, bad_examples, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
       [
         name, website_url || '', industry || '', target_audience || '',
         tone || 'professional', brand_voice || '', reference_content || '', niche_category || 'general',
@@ -57,6 +69,8 @@ router.post('/', async (req, res) => {
         color || '#6366f1',
         author_name || '', author_credentials || '', author_bio || '', company_credentials || '',
         JSON.stringify(preferred_citations || []),
+        JSON.stringify(products_services || []), JSON.stringify(buyer_personas || []),
+        JSON.stringify(dos_and_donts || []), JSON.stringify(good_examples || []), JSON.stringify(bad_examples || []),
         req.user.id
       ]
     );
@@ -68,6 +82,11 @@ router.post('/', async (req, res) => {
       competitors: JSON.parse(client.competitors || '[]'),
       internal_urls: JSON.parse(client.internal_urls || '[]'),
       preferred_citations: JSON.parse(client.preferred_citations || '[]'),
+      products_services: JSON.parse(client.products_services || '[]'),
+      buyer_personas: JSON.parse(client.buyer_personas || '[]'),
+      dos_and_donts: JSON.parse(client.dos_and_donts || '[]'),
+      good_examples: JSON.parse(client.good_examples || '[]'),
+      bad_examples: JSON.parse(client.bad_examples || '[]'),
     });
   } catch (err) {
     console.error(err);
@@ -81,12 +100,13 @@ router.put('/:id', async (req, res) => {
     const existing = await db.get('SELECT id FROM clients WHERE id = $1', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Client not found' });
 
-    const { name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations } = req.body;
+    const { name, website_url, industry, target_audience, tone, brand_voice, reference_content, niche_category, banned_words, competitors, internal_urls, color, author_name, author_credentials, author_bio, company_credentials, preferred_citations, products_services, buyer_personas, dos_and_donts, good_examples, bad_examples } = req.body;
     await db.run(
       `UPDATE clients SET name=$1, website_url=$2, industry=$3, target_audience=$4, tone=$5, brand_voice=$6, reference_content=$7, niche_category=$8,
        banned_words=$9, competitors=$10, internal_urls=$11, color=$12,
        author_name=$13, author_credentials=$14, author_bio=$15, company_credentials=$16, preferred_citations=$17,
-       updated_at=CURRENT_TIMESTAMP WHERE id=$18`,
+       products_services=$18, buyer_personas=$19, dos_and_donts=$20, good_examples=$21, bad_examples=$22,
+       updated_at=CURRENT_TIMESTAMP WHERE id=$23`,
       [
         name, website_url || '', industry || '', target_audience || '',
         tone || 'professional', brand_voice || '', reference_content || '', niche_category || 'general',
@@ -95,6 +115,8 @@ router.put('/:id', async (req, res) => {
         color || '#6366f1',
         author_name || '', author_credentials || '', author_bio || '', company_credentials || '',
         JSON.stringify(preferred_citations || []),
+        JSON.stringify(products_services || []), JSON.stringify(buyer_personas || []),
+        JSON.stringify(dos_and_donts || []), JSON.stringify(good_examples || []), JSON.stringify(bad_examples || []),
         req.params.id
       ]
     );
@@ -106,6 +128,11 @@ router.put('/:id', async (req, res) => {
       competitors: JSON.parse(client.competitors || '[]'),
       internal_urls: JSON.parse(client.internal_urls || '[]'),
       preferred_citations: JSON.parse(client.preferred_citations || '[]'),
+      products_services: JSON.parse(client.products_services || '[]'),
+      buyer_personas: JSON.parse(client.buyer_personas || '[]'),
+      dos_and_donts: JSON.parse(client.dos_and_donts || '[]'),
+      good_examples: JSON.parse(client.good_examples || '[]'),
+      bad_examples: JSON.parse(client.bad_examples || '[]'),
     });
   } catch (err) {
     console.error(err);
@@ -120,6 +147,34 @@ router.delete('/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete client' });
+  }
+});
+
+// POST /api/clients/:id/sitemap
+// Fetch and parse sitemap
+router.post('/:id/sitemap', async (req, res) => {
+  const { sitemap_url } = req.body;
+  if (!sitemap_url) return res.status(400).json({ error: 'sitemap_url is required' });
+
+  try {
+    const sitemapRes = await axios.get(sitemap_url);
+    const parser = new xml2js.Parser();
+    const result = await parser.parseStringPromise(sitemapRes.data);
+
+    let urls = [];
+    if (result.urlset && result.urlset.url) {
+      urls = result.urlset.url.map(u => u.loc[0]);
+    } else if (result.sitemapindex && result.sitemapindex.sitemap) {
+      return res.status(400).json({ error: 'This is a sitemap index. Please provide a direct URL sitemap.' });
+    }
+
+    // Filter to limit and only keep valid string URLs
+    urls = urls.filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 100);
+
+    res.json({ urls, success: true });
+  } catch (err) {
+    console.error('Sitemap parse error:', err);
+    res.status(500).json({ error: 'Failed to fetch or parse sitemap' });
   }
 });
 

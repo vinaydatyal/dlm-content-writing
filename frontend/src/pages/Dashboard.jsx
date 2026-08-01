@@ -45,7 +45,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid-4" style={{ marginBottom: '40px' }}>
-        <div className="card">
+        <div className="card interactive" onClick={() => navigate('/library')}>
           <div className="flex-between" style={{ marginBottom: '16px' }}>
             <h3 style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Total Articles</h3>
             <div style={{ background: 'var(--primary-light)', padding: '8px', borderRadius: '8px', color: 'var(--primary-accent)' }}>
@@ -57,7 +57,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card interactive" onClick={() => navigate('/library')}>
           <div className="flex-between" style={{ marginBottom: '16px' }}>
             <h3 style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Generated This Week</h3>
             <div style={{ background: 'rgba(16, 185, 129, 0.15)', padding: '8px', borderRadius: '8px', color: '#10B981' }}>
@@ -81,7 +81,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card interactive" onClick={() => navigate('/clients')}>
           <div className="flex-between" style={{ marginBottom: '16px' }}>
             <h3 style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Active Clients</h3>
             <div style={{ background: 'rgba(59, 130, 246, 0.15)', padding: '8px', borderRadius: '8px', color: '#3B82F6' }}>
@@ -108,7 +108,12 @@ export default function Dashboard() {
           <tbody>
             {stats?.recent_projects?.length > 0 ? (
               stats.recent_projects.map(project => (
-                <tr key={project.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                <tr 
+                  key={project.id} 
+                  className="table-row-interactive"
+                  onClick={() => navigate(`/editor/${project.id}`)}
+                  style={{ borderBottom: '1px solid var(--border-color)' }}
+                >
                   <td style={{ padding: '16px 24px', fontWeight: 500 }}>{project.keyword}</td>
                   <td style={{ padding: '16px 24px' }}>
                     <span className="badge" style={{ backgroundColor: project.client_color ? `${project.client_color}22` : 'var(--primary-light)', color: project.client_color || 'var(--primary-accent)' }}>

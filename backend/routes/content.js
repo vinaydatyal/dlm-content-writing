@@ -48,7 +48,7 @@ function parseArray(val) {
   return [];
 }
 
-function buildClientContext(profile) {
+async function buildClientContext(profile) {
   if (!profile) return '';
   const banned = parseArray(profile.banned_words).join(', ');
   const competitors = parseArray(profile.competitors).join(', ');
@@ -80,6 +80,47 @@ ${citations.map(c => `- ${c}`).join('\n')}
 IMPORTANT: Every H2 section MUST include at least one specific statistic, data point, or research finding. Format as: "According to [Source], X% of..." or "Research from [Source] shows that..."` : `
 CITATION REQUIREMENT: Every H2 section MUST include at least one specific statistic or data point. Use credible sources like HubSpot, Statista, McKinsey, industry reports, or peer-reviewed studies.`;
 
+  const products = parseArray(profile.products_services);
+  const productsBlock = products.length > 0 ? `
+PRODUCTS & SERVICES OFFERED (When discussing solutions, explicitly reference these specific products and features, rather than generic alternatives):
+${products.map(p => `- Product/Service: ${p.name || p}\n  Description: ${p.description || 'N/A'}\n  Value Proposition: ${p.uvp || 'N/A'}`).join('\n')}
+` : '';
+
+  const personas = parseArray(profile.buyer_personas);
+  const personasBlock = personas.length > 0 ? `
+TARGET BUYER PERSONAS (Write directly to these specific personas, addressing their anxieties and goals):
+${personas.map(p => `- Persona: ${p.name || p}\n  Pain Points: ${p.pain_points || 'N/A'}\n  Goals: ${p.goals || 'N/A'}\n  Common Objections: ${p.objections || 'N/A'}`).join('\n')}
+` : '';
+
+  const dosAndDonts = parseArray(profile.dos_and_donts);
+  const dosAndDontsBlock = dosAndDonts.length > 0 ? `
+DO'S AND DON'TS (BRAND VOICE MAPPING):
+${dosAndDonts.map(d => `- INSTEAD OF SAYING "${d.bad_phrase}", SAY "${d.good_phrase}" (Context: ${d.context})`).join('\n')}
+CRITICAL RULE: You MUST strictly adhere to these vocabulary mappings.
+` : '';
+
+  const goodExamples = parseArray(profile.good_examples);
+  const badExamples = parseArray(profile.bad_examples);
+  const examplesBlock = (goodExamples.length > 0 || badExamples.length > 0) ? `
+FEW-SHOT TONE EXAMPLES:
+${goodExamples.length > 0 ? `👍 GOOD EXAMPLES (Emulate this tone and style):\n${goodExamples.map(e => `"""\n${e.content || e}\n"""`).join('\n')}\n` : ''}
+${badExamples.length > 0 ? `👎 BAD EXAMPLES (NEVER write like this):\n${badExamples.map(e => `"""\n${e.content || e}\n"""`).join('\n')}\n` : ''}
+` : '';
+
+  let kbBlock = '';
+  if (profile.id) {
+    try {
+      const kbDocs = await db.all('SELECT title, content FROM knowledge_base WHERE client_id = $1', [profile.id]);
+      if (kbDocs && kbDocs.length > 0) {
+        kbBlock = `\nKNOWLEDGE BASE (FACTUAL REFERENCE):\n` + 
+          kbDocs.map(d => `--- DOCUMENT: ${d.title} ---\n${d.content.slice(0, 3000)}\n----------------------`).join('\n') +
+          `\nCRITICAL INSTRUCTION: Use the above Knowledge Base to pull exact facts, details, and context.`;
+      }
+    } catch (err) {
+      console.error('Failed to load knowledge base:', err);
+    }
+  }
+
   return `
 CLIENT PROFILE:
 - Niche / Industry: ${profile.industry || 'General'} (Category: ${profile.niche_category || 'general'})
@@ -89,10 +130,15 @@ CLIENT PROFILE:
 - BANNED WORDS (NEVER use these): ${banned || 'none'}
 - COMPETITOR BRANDS (NEVER mention, link to, or promote): ${competitors || 'none'}
 ${refContent}
+${productsBlock}
+${personasBlock}
+${dosAndDontsBlock}
+${examplesBlock}
 ${eeatBlock}
 ${citationBlock}
 ${internalLinksBlock}
-${ymyl}`;
+${ymyl}
+${kbBlock}`;
 }
 
 // ─────────────────────────────────────────
@@ -120,7 +166,7 @@ AVERAGE WORD COUNT: ~${serp_data.avg_word_count || 1500} words
 ${serp_data.content_gaps && serp_data.content_gaps.length > 0 ? `COMPETITOR CONTENT GAPS (Topics competitors cover comprehensively that MUST be included):\n${serp_data.content_gaps.map(g => `- ${g}`).join('\n')}\n` : ''}
 ` : '';
 
-    const clientContext = buildClientContext(client_profile);
+    const clientContext = await buildClientContext(client_profile);
     const manualResearchContext = manual_research ? `\nUSER'S MANUAL RESEARCH & CRITICAL INSTRUCTIONS:\n${manual_research}\n` : '';
 
     const prompt = `You are an expert SEO content strategist. Create a comprehensive SEO content brief for the following:
@@ -256,13 +302,13 @@ router.post('/generate', async (req, res) => {
   try {
     const ai = await getPuter();
 
-    const clientContext = buildClientContext(client_profile);
+    const clientContext = await buildClientContext(client_profile);
 
     const outlineContext = outline && outline.length > 0
       ? `\nFULL ARTICLE OUTLINE:\n${outline.map(s => `${s.type.toUpperCase()}: ${s.heading}`).join('\n')}`
       : '';
 
-    const prompt = `You are an expert SEO content writer. Write the content for this specific section of an article.
+    const writerPrompt = `You are an expert SEO content writer. Write the content for this specific section of an article.
 
 PRIMARY KEYWORD: "${keyword}"
 ${clientContext}
@@ -279,20 +325,34 @@ Include these naturally: ${(section.keywords_to_include || []).join(', ')}
 
 ${existing_content ? `PREVIOUSLY WRITTEN CONTENT (for context and continuity):\n${existing_content.substring(existing_content.length - 1000)}` : ''}
 
-Write ONLY the content for this section. Do NOT include the heading. Write in a flowing, natural, human style that reads well. Use markdown formatting where appropriate (bullet points, bold for key terms). Be specific, informative, and engaging. Avoid fluff and filler phrases.
-Do NOT include any preamble, intro text, conversational filler, or postamble like "Here is the content" or "Hope this helps". Start immediately with the text for the section.
-
-CRITICAL RULES:
-1. If this is an H2 section, you MUST include at least one specific statistic, data point, or study finding.
-2. ANTI-AI TROPES — YOU MUST NOT USE THESE WORDS/PHRASES:
-   - "In today's digital landscape" | "Ultimately" | "Delve" | "Tapestry"
-   - "Moreover" | "Furthermore" | "Crucial" | "Testament" | "Navigating" | "Unlock"
-3. Vary your sentence structure. Mix short punchy sentences with longer explanatory ones.
-4. Never start two consecutive sentences with the same word.
+Write ONLY the content for this section. Do NOT include the heading. Be specific, informative, and engaging.
 
 ${custom_instructions ? `\nCUSTOM INSTRUCTIONS FOR THIS ARTICLE:\n${custom_instructions}\n` : ''}`;
 
-    const stream = await ai.ai.chat(prompt, { stream: true });
+    // 1. Writer Agent generates the first draft invisibly
+    const writerResp = await ai.ai.chat(writerPrompt);
+    const draftText = typeof writerResp === 'string' ? writerResp : (writerResp?.text || writerResp?.message?.content || '');
+
+    // 2. Editor Agent revises the draft and streams to the client
+    const editorPrompt = `You are a strict, world-class human editor and brand compliance officer. 
+Your job is to revise the following AI-generated draft so it perfectly matches the client's brand voice, reads like a human wrote it, and fixes any AI tropes.
+
+CLIENT BRAND GUIDELINES & CONTEXT:
+${clientContext}
+
+CRITICAL RULES FOR REVISION:
+1. **Humanize Rhythm:** Mix very short punchy sentences (3-6 words) with longer explanatory ones. Use contractions ("don't", "it's").
+2. **Remove AI Tropes:** Delete "Moreover", "Furthermore", "In today's landscape", "Crucial", "Testament", "Delve", "Tapestry", etc.
+3. **Never start two consecutive sentences with the same word.**
+4. **Preserve formatting:** Keep any markdown (bullet points, bold text).
+5. **Brand Strictness:** Ensure NO BANNED WORDS were used. Ensure any "Do's and Don'ts" mapping is respected.
+
+REVISE THIS DRAFT:
+${draftText}
+
+Return ONLY the fully revised content. No preamble, no postamble. Start immediately with the text.`;
+
+    const stream = await ai.ai.chat(editorPrompt, { stream: true });
 
     for await (const chunk of stream) {
       const text = typeof chunk === 'string' ? chunk : (chunk?.text || '');
@@ -300,6 +360,7 @@ ${custom_instructions ? `\nCUSTOM INSTRUCTIONS FOR THIS ARTICLE:\n${custom_instr
         res.write(`data: ${JSON.stringify({ text })}\n\n`);
       }
     }
+
 
     const totalTokens = 500;
     await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
@@ -449,6 +510,126 @@ router.get('/usage', async (req, res) => {
     res.json({ by_action: stats, ...total });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch usage' });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/fact-check
+// Automated Brand Hallucination Check
+// ─────────────────────────────────────────
+router.post('/fact-check', async (req, res) => {
+  const { content, client_profile } = req.body;
+  if (!content || !client_profile) return res.status(400).json({ error: 'Content and client profile are required' });
+
+  try {
+    const ai = await getPuter();
+    const clientContext = await buildClientContext(client_profile);
+
+    const prompt = `You are a strict brand compliance officer and fact-checker. Review the following article against the Client Profile provided.
+
+${clientContext}
+
+ARTICLE TO REVIEW:
+${content}
+
+Your job is to strictly check for the following:
+1. **Product/Service Hallucinations:** Did the AI invent any products, features, or services that are NOT listed in the "PRODUCTS & SERVICES OFFERED" section?
+2. **Banned Words/Competitors:** Did the AI use any words from the BANNED WORDS list or mention any COMPETITOR BRANDS?
+3. **Do's and Don'ts Violations:** Did the AI use any "Bad Phrases" instead of the recommended "Good Phrases"?
+4. **Tone Drift:** Does the article severely violate the requested tone or brand voice?
+
+Return a JSON object with this exact structure:
+{
+  "passed": boolean, // true if there are no major violations, false if there are hallucinations or banned words used
+  "violations": [
+    "List of specific violations found, including quotes from the text if possible."
+  ],
+  "recommendations": [
+    "Specific instructions on how to fix the violations."
+  ]
+}
+
+Return ONLY valid JSON. Absolutely NO preamble, markdown formatting around the JSON, or conversational filler. Start exactly with '{' and end exactly with '}'.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
+
+    let checkData;
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      checkData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+    } catch {
+      checkData = {
+        passed: true,
+        violations: ["Failed to parse compliance check response."],
+        recommendations: []
+      };
+    }
+
+    const tokensUsed = 400;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'fact_check', tokensUsed]);
+
+    res.json({ ...checkData, tokens_used: tokensUsed });
+  } catch (err) {
+    console.error('Fact check error:', err);
+    res.status(500).json({ error: 'Failed to run fact check: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/hooks
+// Generate A/B Hook variations
+// ─────────────────────────────────────────
+router.post('/hooks', async (req, res) => {
+  const { keyword, brief, client_profile } = req.body;
+  if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+  try {
+    const ai = await getPuter();
+    const clientContext = await buildClientContext(client_profile);
+
+    const prompt = `You are a master copywriter. The user is about to write an article for the keyword: "${keyword}".
+    
+${clientContext}
+
+BRIEF: ${brief || 'Write a compelling article.'}
+
+Generate 3 entirely different, highly engaging H1 Titles and introductory paragraphs (hooks). 
+Variation 1: Data/Statistic driven (start with a shocking fact or number)
+Variation 2: Story/Empathy driven (focus deeply on the buyer persona's pain point)
+Variation 3: Question/Curiosity led (challenge a common misconception)
+
+Return a JSON array of 3 objects exactly like this:
+[
+  { "type": "Data-Driven", "title": "...", "hook": "..." },
+  { "type": "Empathy-Driven", "title": "...", "hook": "..." },
+  { "type": "Curiosity-Led", "title": "...", "hook": "..." }
+]
+
+Return ONLY valid JSON. No preamble, no markdown formatting around the JSON.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
+
+    let hooksData;
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      hooksData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+    } catch {
+      hooksData = [
+        { type: "Error", title: "Failed to parse hooks", hook: "Please try again." }
+      ];
+    }
+
+    const tokensUsed = 300;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'generate_hooks', tokensUsed]);
+
+    res.json({ hooks: hooksData, tokens_used: tokensUsed });
+  } catch (err) {
+    console.error('Hooks error:', err);
+    res.status(500).json({ error: 'Failed to generate hooks: ' + err.message });
   }
 });
 

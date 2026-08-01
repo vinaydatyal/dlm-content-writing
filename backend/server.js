@@ -24,6 +24,7 @@ app.use('/api/serp', require('./routes/serp'));
 app.use('/api/content', require('./routes/content'));
 app.use('/api/templates', require('./routes/templates'));
 app.use('/api/export', require('./routes/export'));
+app.use('/api/knowledge', require('./routes/knowledge'));
 
 // Health check
 app.get('/api/health', (req, res) => {
