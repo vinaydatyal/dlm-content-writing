@@ -146,7 +146,7 @@ Generate a strategic SEO brief that includes:
 9. **Tone & Style Guidelines** - How to write this content
 10. **Content Structure Notes** - Recommended format (listicle, guide, how-to, etc.)
 
-Format as a clean, structured brief that a writer can follow.`;
+Format as a clean, structured brief that a writer can follow. Do NOT include any preamble, postamble, conversational filler, or intro text like "Here is the brief". Start immediately with the brief content.`;
 
     const resp = await ai.ai.chat(prompt);
     const brief = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
@@ -201,7 +201,7 @@ The outline must:
 4. Have an introduction and conclusion
 5. Include an FAQ section if applicable
 
-Return ONLY valid JSON array, no other text.`;
+Return ONLY valid JSON array, no other text. Absolutely NO preamble, markdown formatting around the JSON, or conversational filler. Start exactly with '[' and end exactly with ']'.`;
 
     const resp = await ai.ai.chat(prompt);
     const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
@@ -280,6 +280,7 @@ Include these naturally: ${(section.keywords_to_include || []).join(', ')}
 ${existing_content ? `PREVIOUSLY WRITTEN CONTENT (for context and continuity):\n${existing_content.substring(existing_content.length - 1000)}` : ''}
 
 Write ONLY the content for this section. Do NOT include the heading. Write in a flowing, natural, human style that reads well. Use markdown formatting where appropriate (bullet points, bold for key terms). Be specific, informative, and engaging. Avoid fluff and filler phrases.
+Do NOT include any preamble, intro text, conversational filler, or postamble like "Here is the content" or "Hope this helps". Start immediately with the text for the section.
 
 CRITICAL RULES:
 1. If this is an H2 section, you MUST include at least one specific statistic, data point, or study finding.
@@ -341,7 +342,7 @@ CLIENT WEBSITE URLS (for internal linking): ${JSON.stringify(internal_urls || []
 ARTICLE CONTENT:
 ${content.substring(0, 4000)}
 
-Return ONLY valid JSON.`;
+Return ONLY valid JSON. Absolutely NO preamble, markdown formatting around the JSON, or conversational filler. Start exactly with '{' and end exactly with '}'.`;
 
     const resp = await ai.ai.chat(prompt);
     const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
@@ -407,7 +408,7 @@ ${custom_instructions ? `ADDITIONAL TONE INSTRUCTIONS:\n${custom_instructions}\n
 ARTICLE TO REWRITE:
 ${content}
 
-Return ONLY the full rewritten article in markdown. No preamble, no explanation.`;
+Return ONLY the full rewritten article in markdown. No preamble, no explanation, no conversational filler. Start immediately with the rewritten text.`;
 
     const stream = await ai.ai.chat(prompt, { stream: true });
 
