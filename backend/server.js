@@ -22,6 +22,7 @@ app.use('/api/clients', require('./routes/clients'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/serp', require('./routes/serp'));
 app.use('/api/content', require('./routes/content'));
+app.use('/api/templates', require('./routes/templates'));
 app.use('/api/export', require('./routes/export'));
 
 // Health check

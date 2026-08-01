@@ -31,6 +31,10 @@ export default function Layout({ onLogout }) {
             <Users size={20} />
             Clients
           </NavLink>
+          <NavLink to="/templates" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <Settings size={20} />
+            Templates
+          </NavLink>
           <NavLink to="/library" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <Archive size={20} />
             Library

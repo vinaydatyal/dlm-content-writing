@@ -7,6 +7,7 @@ import ClientManager from './pages/ClientManager';
 import ArticleLibrary from './pages/ArticleLibrary';
 import BulkGenerator from './pages/BulkGenerator';
 import ContentCalendar from './pages/ContentCalendar';
+import Templates from './pages/Templates';
 import { ToastProvider } from './components/ToastContext';
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
             <Route path="calendar" element={<ContentCalendar />} />
             <Route path="editor/:projectId" element={<ContentEditor />} />
             <Route path="clients" element={<ClientManager />} />
+            <Route path="templates" element={<Templates />} />
             <Route path="library" element={<ArticleLibrary />} />
           </Route>
         </Routes>

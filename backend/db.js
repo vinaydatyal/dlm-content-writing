@@ -93,6 +93,16 @@ const SCHEMA = `
     model TEXT DEFAULT 'claude-3-5-sonnet-20241022',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS templates (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    instructions TEXT,
+    is_default BOOLEAN DEFAULT false,
+    created_by INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
 `;
 
 // Helper: convert ? to $1, $2 for Postgres
@@ -115,8 +125,48 @@ async function initDb() {
 
   try {
     await pool.query(SCHEMA);
+    await seedTemplates();
   } catch (err) {
     console.error("Failed to execute schema:", err);
+  }
+}
+
+async function seedTemplates() {
+  const countRes = await get('SELECT COUNT(*) as count FROM templates');
+  if (parseInt(countRes.count) === 0) {
+    console.log("Seeding default templates...");
+    const PREDEFINED_TEMPLATES = [
+      // Blog Posts
+      { name: 'Standard Blog (Informational Intent)', type: 'blog_post', instructions: 'Write in a conversational but professional tone. Focus on directly answering the user query in the first 100 words.' },
+      { name: 'Skyscraper Content (High Competition)', type: 'blog_post', instructions: 'Write highly comprehensive 10x content. Include statistical data, expert quotes, and format heavily with tables, lists, and bold text.' },
+      { name: 'Niche Topic (Long-Tail Intent)', type: 'blog_post', instructions: 'Focus deeply on hyper-specific subtopics. Use secondary keywords naturally. Keep language highly technical and authoritative.' },
+      { name: 'Listicle / Top X (Discovery Intent)', type: 'blog_post', instructions: 'Keep each item concise. Highlight the unique selling point of each item. Optimize H3 tags for quick scanning.' },
+      { name: 'Step-by-Step Guide (How-To Intent)', type: 'blog_post', instructions: 'Break down every step logically. Use numbered lists where possible. Include "Prerequisites" or "What you need" sections.' },
+      
+      // Product Pages
+      { name: 'Product Page (Commercial Intent)', type: 'product_page', instructions: 'Focus heavily on benefits rather than just features. Use persuasive copywriting and end with a strong CTA.' },
+      { name: 'Product Review (Transactional Intent)', type: 'product_page', instructions: 'Be objective but persuasive. List clear pros and cons. Include a "Final Verdict" or "Who this is for" section.' },
+      { name: 'Product Comparison (Decision Intent)', type: 'product_page', instructions: 'Compare objectively across multiple dimensions. Emphasize differences in pricing, usability, and target audience.' },
+      
+      // Location Pages
+      { name: 'Local SEO (Hyper-Local Focus)', type: 'location_page', instructions: 'Mention specific neighborhoods, local landmarks, and proximity to major roads. Establish trust as a local authority.' },
+      { name: 'Local SEO (Broad City Service)', type: 'location_page', instructions: 'Focus on serving the entire metropolitan area. Detail service areas and incorporate broad geographic modifiers.' },
+      
+      // Service Pages
+      { name: 'Core Service (Conversion Focus)', type: 'service_page', instructions: 'Clearly define the problem it solves, the process, and include trust signals (testimonials/guarantees). Use a strong, conversion-focused CTA.' },
+      { name: 'Service Overview (Educational Focus)', type: 'service_page', instructions: 'Educate the reader on why they need this service. Break down industry jargon and outline the long-term ROI.' },
+      
+      // Info Pages
+      { name: 'Comprehensive Guide (Evergreen)', type: 'info_page', instructions: 'Provide in-depth, authoritative information designed to be evergreen. Use varied formatting, definitions, and extensive examples.' },
+      { name: 'FAQ / Glossary Hub', type: 'info_page', instructions: 'Format as direct Questions and Answers. Keep answers concise (under 50 words per answer) to target Featured Snippets.' },
+    ];
+    
+    for (const tpl of PREDEFINED_TEMPLATES) {
+      await run(
+        'INSERT INTO templates (name, type, instructions, is_default) VALUES (?, ?, ?, ?)',
+        [tpl.name, tpl.type, tpl.instructions, true]
+      );
+    }
   }
 }
 

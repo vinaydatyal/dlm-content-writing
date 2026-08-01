@@ -100,7 +100,7 @@ ${ymyl}`;
 // Generate strategic SEO brief from SERP data
 // ─────────────────────────────────────────
 router.post('/brief', async (req, res) => {
-  const { keyword, title, serp_data, content_type, client_profile, target_word_count } = req.body;
+  const { keyword, title, serp_data, content_type, client_profile, target_word_count, manual_research } = req.body;
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
   try {
@@ -121,6 +121,7 @@ ${serp_data.content_gaps && serp_data.content_gaps.length > 0 ? `COMPETITOR CONT
 ` : '';
 
     const clientContext = buildClientContext(client_profile);
+    const manualResearchContext = manual_research ? `\nUSER'S MANUAL RESEARCH & CRITICAL INSTRUCTIONS:\n${manual_research}\n` : '';
 
     const prompt = `You are an expert SEO content strategist. Create a comprehensive SEO content brief for the following:
 
@@ -131,6 +132,7 @@ TARGET WORD COUNT: ~${target_word_count || 1500} words
 
 ${serpContext}
 ${clientContext}
+${manualResearchContext}
 
 Generate a strategic SEO brief that includes:
 1. **Search Intent Analysis** - What is the user trying to accomplish?

@@ -6,31 +6,7 @@ import { useToast } from '../components/ToastContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
-const PREDEFINED_TEMPLATES = [
-  // Blog Posts
-  { id: 'blog_standard', name: 'Standard Blog (Informational Intent)', type: 'blog_post', instructions: 'Write in a conversational but professional tone. Focus on directly answering the user query in the first 100 words.' },
-  { id: 'blog_skyscraper', name: 'Skyscraper Content (High Competition)', type: 'blog_post', instructions: 'Write highly comprehensive 10x content. Include statistical data, expert quotes, and format heavily with tables, lists, and bold text.' },
-  { id: 'blog_longtail', name: 'Niche Topic (Long-Tail Intent)', type: 'blog_post', instructions: 'Focus deeply on hyper-specific subtopics. Use secondary keywords naturally. Keep language highly technical and authoritative.' },
-  { id: 'listicle', name: 'Listicle / Top X (Discovery Intent)', type: 'blog_post', instructions: 'Keep each item concise. Highlight the unique selling point of each item. Optimize H3 tags for quick scanning.' },
-  { id: 'howto', name: 'Step-by-Step Guide (How-To Intent)', type: 'blog_post', instructions: 'Break down every step logically. Use numbered lists where possible. Include "Prerequisites" or "What you need" sections.' },
-  
-  // Product Pages
-  { id: 'product_commercial', name: 'Product Page (Commercial Intent)', type: 'product_page', instructions: 'Focus heavily on benefits rather than just features. Use persuasive copywriting and end with a strong CTA.' },
-  { id: 'review_transactional', name: 'Product Review (Transactional Intent)', type: 'product_page', instructions: 'Be objective but persuasive. List clear pros and cons. Include a "Final Verdict" or "Who this is for" section.' },
-  { id: 'comparison', name: 'Product Comparison (Decision Intent)', type: 'product_page', instructions: 'Compare objectively across multiple dimensions. Emphasize differences in pricing, usability, and target audience.' },
-  
-  // Location Pages
-  { id: 'local_hyper', name: 'Local SEO (Hyper-Local Focus)', type: 'location_page', instructions: 'Mention specific neighborhoods, local landmarks, and proximity to major roads. Establish trust as a local authority.' },
-  { id: 'local_broad', name: 'Local SEO (Broad City Service)', type: 'location_page', instructions: 'Focus on serving the entire metropolitan area. Detail service areas and incorporate broad geographic modifiers.' },
-  
-  // Service Pages
-  { id: 'service_core', name: 'Core Service (Conversion Focus)', type: 'service_page', instructions: 'Clearly define the problem it solves, the process, and include trust signals (testimonials/guarantees). Use a strong, conversion-focused CTA.' },
-  { id: 'service_educational', name: 'Service Overview (Educational Focus)', type: 'service_page', instructions: 'Educate the reader on why they need this service. Break down industry jargon and outline the long-term ROI.' },
-  
-  // Info Pages
-  { id: 'info_guide', name: 'Comprehensive Guide (Evergreen)', type: 'info_page', instructions: 'Provide in-depth, authoritative information designed to be evergreen. Use varied formatting, definitions, and extensive examples.' },
-  { id: 'info_faq', name: 'FAQ / Glossary Hub', type: 'info_page', instructions: 'Format as direct Questions and Answers. Keep answers concise (under 50 words per answer) to target Featured Snippets.' },
-];
+// Removed hardcoded PREDEFINED_TEMPLATES
 
 export default function BriefBuilder() {
   const navigate = useNavigate();
@@ -38,6 +14,8 @@ export default function BriefBuilder() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [clients, setClients] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [manualResearch, setManualResearch] = useState('');
   
   // Form State
   const [keyword, setKeyword] = useState('');
@@ -57,7 +35,7 @@ export default function BriefBuilder() {
     const tplId = e.target.value;
     setSelectedTemplate(tplId);
     if (tplId) {
-      const tpl = PREDEFINED_TEMPLATES.find(t => t.id === tplId);
+      const tpl = templates.find(t => t.id.toString() === tplId);
       if (tpl) {
         setContentType(tpl.type);
         setCustomInstructions(tpl.instructions);
@@ -84,18 +62,20 @@ export default function BriefBuilder() {
   };
 
   useEffect(() => {
-    const fetchClients = async () => {
+    const fetchData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get(`${API_URL}/clients`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setClients(res.data);
+        const [clientsRes, templatesRes] = await Promise.all([
+          axios.get(`${API_URL}/clients`, { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${API_URL}/templates`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+        setClients(clientsRes.data);
+        setTemplates(templatesRes.data);
       } catch (err) {
-        console.error('Failed to fetch clients', err);
+        console.error('Failed to fetch data', err);
       }
     };
-    fetchClients();
+    fetchData();
   }, []);
 
   const handleNext = async () => {
@@ -139,7 +119,8 @@ export default function BriefBuilder() {
           title,
           serp_data: serpData,
           content_type: contentType,
-          client_profile: clientProfile
+          client_profile: clientProfile,
+          manual_research: manualResearch
         }, { headers });
         
         setBrief(briefRes.data.brief);
@@ -286,8 +267,8 @@ export default function BriefBuilder() {
                 onChange={handleTemplateChange}
               >
                 <option value="">Start from Scratch</option>
-                {PREDEFINED_TEMPLATES.filter(t => t.type === contentType).map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                {templates.filter(t => t.type === contentType).map(t => (
+                  <option key={t.id} value={t.id.toString()}>{t.name}</option>
                 ))}
               </select>
             </div>
@@ -350,7 +331,7 @@ export default function BriefBuilder() {
                 {serpData.content_gaps && serpData.content_gaps.length > 0 && (
                   <>
                     <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>🎯 Content Gaps to Win</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
                       {serpData.content_gaps.map((gap, i) => (
                         <div key={i} style={{ padding: '10px 12px', background: 'rgba(16,185,129,0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)', fontSize: '0.9rem', color: 'var(--secondary-accent)' }}>
                           ✓ {gap}
@@ -359,6 +340,20 @@ export default function BriefBuilder() {
                     </div>
                   </>
                 )}
+                
+                <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>📝 My Research & Notes</h3>
+                <div style={{ marginBottom: '24px' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
+                    Have your own notes, research, or specific angles you want the AI to include in the brief? Add them here.
+                  </p>
+                  <textarea 
+                    className="input" 
+                    placeholder="e.g. Make sure to emphasize the difference between X and Y. Our stance is that X is always better. Target audience is beginners."
+                    value={manualResearch}
+                    onChange={(e) => setManualResearch(e.target.value)}
+                    style={{ minHeight: '150px' }}
+                  />
+                </div>
               </div>
             </div>
           </div>
