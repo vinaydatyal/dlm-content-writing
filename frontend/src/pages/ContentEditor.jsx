@@ -969,10 +969,10 @@ export default function ContentEditor() {
                           </ul>
                         </div>
                       )}
-                    </div>
                   )}
                 </div>
-              )}
+              </div>
+            )}
             </div>
           </div>
         </div>
