@@ -171,11 +171,35 @@ router.post('/:id/sitemap', async (req, res) => {
     // Filter to limit and only keep valid string URLs
     urls = urls.filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 100);
 
-    res.json({ urls, success: true });
+    // Start background enrichment task
+    enrichAndSaveUrls(req.params.id, urls);
+
+    res.json({ urls, success: true, message: 'Sitemap parsed. Enrichment started in background.' });
   } catch (err) {
     console.error('Sitemap parse error:', err);
     res.status(500).json({ error: 'Failed to fetch or parse sitemap' });
   }
 });
+
+async function enrichAndSaveUrls(clientId, urls) {
+  const enriched = [];
+  console.log(`Starting background enrichment of ${urls.length} URLs for client ${clientId}`);
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, { timeout: 5000 });
+      const html = res.data;
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].trim() : url;
+      const descMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["'][^>]*>/i) || 
+                        html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']description["'][^>]*>/i);
+      const description = descMatch ? descMatch[1].trim() : '';
+      enriched.push({ url, title, description });
+    } catch (e) {
+      enriched.push({ url, title: url, description: '' });
+    }
+  }
+  db.run('UPDATE clients SET internal_urls = $1 WHERE id = $2', [JSON.stringify(enriched), clientId]);
+  console.log(`Finished enrichment for client ${clientId}`);
+}
 
 module.exports = router;

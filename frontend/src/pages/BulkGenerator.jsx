@@ -12,6 +12,7 @@ export default function BulkGenerator() {
   const [keywordsText, setKeywordsText] = useState('');
   const [queue, setQueue] = useState([]);
   const [processing, setProcessing] = useState(false);
+  const [bulkJobId, setBulkJobId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -30,17 +31,27 @@ export default function BulkGenerator() {
   }, []);
 
   const addToQueue = () => {
-    const keywords = keywordsText.split('\n').map(k => k.trim()).filter(k => k);
-    if (keywords.length === 0) return alert('Enter at least one keyword');
+    const lines = keywordsText.split('\n').map(k => k.trim()).filter(k => k);
+    if (lines.length === 0) return alert('Enter at least one keyword');
 
-    const newItems = keywords.map(kw => ({
-      id: Date.now() + Math.random(),
-      keyword: kw,
-      clientId,
-      contentType,
-      status: 'pending', // pending | processing | done | error
-      projectId: null
-    }));
+    const newItems = lines.map(line => {
+      let keyword = line;
+      let target_url = '';
+      if (line.includes(',')) {
+         const parts = line.split(',');
+         keyword = parts[0].trim();
+         target_url = parts[1].trim();
+      }
+      return {
+        id: Date.now() + Math.random(),
+        keyword,
+        target_url,
+        clientId,
+        contentType,
+        status: 'pending', // pending | processing | done | error
+        projectId: null
+      };
+    });
 
     setQueue(prev => [...prev, ...newItems]);
     setKeywordsText('');
@@ -50,74 +61,52 @@ export default function BulkGenerator() {
     setQueue(prev => prev.filter(item => item.id !== id));
   };
 
-  const processQueue = async () => {
-    setProcessing(true);
-    const token = localStorage.getItem('token');
-    const headers = { Authorization: `Bearer ${token}` };
-
-    for (let i = 0; i < queue.length; i++) {
-      const item = queue[i];
-      if (item.status !== 'pending') continue;
-
-      // Mark as processing
-      setQueue(prev => prev.map((q, idx) => q.id === item.id ? { ...q, status: 'processing' } : q));
-
-      try {
-        // 1. Create project
-        const projRes = await axios.post(`${API_URL}/projects`, {
-          keyword: item.keyword,
-          title: '',
-          client_id: item.clientId || null,
-          content_type: item.contentType
-        }, { headers });
-
-        // 2. Fetch SERP
-        const serpRes = await axios.post(`${API_URL}/serp/analyze`, { keyword: item.keyword }, { headers });
-        await axios.put(`${API_URL}/projects/${projRes.data.id}/article`, {
-          serp_data: JSON.stringify(serpRes.data)
-        }, { headers });
-
-        // 3. Generate Brief
-        const clientProfile = clients.find(c => c.id.toString() === item.clientId);
-        const briefRes = await axios.post(`${API_URL}/content/brief`, {
-          keyword: item.keyword,
-          serp_data: serpRes.data,
-          content_type: item.contentType,
-          client_profile: clientProfile
-        }, { headers });
-
-        await axios.put(`${API_URL}/projects/${projRes.data.id}/article`, {
-          brief: briefRes.data.brief,
-          status: 'brief'
-        }, { headers });
-
-        // 4. Generate Outline
-        const outlineRes = await axios.post(`${API_URL}/content/outline`, {
-          keyword: item.keyword,
-          brief: briefRes.data.brief,
-          content_type: item.contentType,
-          serp_data: serpRes.data
-        }, { headers });
-
-        await axios.put(`${API_URL}/projects/${projRes.data.id}/article`, {
-          outline: outlineRes.data.outline,
-          status: 'outline'
-        }, { headers });
-
-        // Mark as done — article is ready to be written in the editor
-        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'done', projectId: projRes.data.id } : q));
-
-      } catch (err) {
-        console.error(`Bulk error for "${item.keyword}":`, err);
-        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error' } : q));
-      }
+  useEffect(() => {
+    let interval;
+    if (processing || bulkJobId) {
+      interval = setInterval(async () => {
+        if (!clientId) return;
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.get(`${API_URL}/bulk/${clientId}`, {
+             headers: { Authorization: `Bearer ${token}` }
+          });
+          const activeJob = res.data.find(j => j.id === bulkJobId || j.status !== 'completed');
+          if (activeJob) {
+             setBulkJobId(activeJob.id);
+             setQueue(activeJob.items);
+             setProcessing(activeJob.status !== 'completed');
+          } else {
+             setProcessing(false);
+          }
+        } catch (e) {}
+      }, 5000);
     }
+    return () => clearInterval(interval);
+  }, [processing, bulkJobId, clientId]);
 
-    setProcessing(false);
+  const processQueue = async () => {
+    if (queue.length === 0 || !clientId) {
+      alert("Please select a client and add keywords");
+      return;
+    }
+    setProcessing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/bulk`, {
+        client_id: clientId,
+        items: queue,
+        name: `Bulk Job - ${new Date().toLocaleDateString()}`
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setBulkJobId(res.data.job_id);
+    } catch(err) {
+      console.error(err);
+      setProcessing(false);
+    }
   };
 
-  const doneCount = queue.filter(q => q.status === 'done').length;
-  const errorCount = queue.filter(q => q.status === 'error').length;
+  const doneCount = queue.filter(q => q.status === 'completed' || q.status === 'done').length;
+  const errorCount = queue.filter(q => q.status === 'error' || q.status === 'failed').length;
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: '900px', margin: '0 auto' }}>
@@ -143,6 +132,7 @@ export default function BulkGenerator() {
             <label>Content Type</label>
             <select className="input" value={contentType} onChange={e => setContentType(e.target.value)}>
               <option value="blog_post">Blog Post</option>
+              <option value="content_refresh">Content Refresh (Optimizer)</option>
               <option value="product_page">Product Page</option>
               <option value="location_page">Location Page</option>
               <option value="service_page">Service Page</option>
@@ -151,11 +141,11 @@ export default function BulkGenerator() {
           </div>
         </div>
         <div className="input-group">
-          <label>Keywords (one per line)</label>
+          <label>Keywords (one per line). For Content Refresh, format as: keyword, target_url</label>
           <textarea
             className="input"
             style={{ minHeight: '120px', fontFamily: 'monospace' }}
-            placeholder={"best project management software\nhow to start a blog in 2025\ntop 10 SEO tools for beginners"}
+            placeholder={"best project management software\nhow to start a blog in 2025, https://example.com/blog\ntop 10 SEO tools for beginners"}
             value={keywordsText}
             onChange={e => setKeywordsText(e.target.value)}
           />
@@ -202,8 +192,8 @@ export default function BulkGenerator() {
                 <div style={{ width: '24px', textAlign: 'center' }}>
                   {item.status === 'pending' && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--text-muted)', margin: '0 auto' }} />}
                   {item.status === 'processing' && <Loader size={16} className="spinner" style={{ border: 'none', color: 'var(--primary-accent)' }} />}
-                  {item.status === 'done' && <Check size={16} style={{ color: '#10B981' }} />}
-                  {item.status === 'error' && <X size={16} style={{ color: '#EF4444' }} />}
+                  {(item.status === 'done' || item.status === 'completed') && <Check size={16} style={{ color: '#10B981' }} />}
+                  {(item.status === 'error' || item.status === 'failed') && <X size={16} style={{ color: '#EF4444' }} />}
                 </div>
 
                 {/* Keyword */}

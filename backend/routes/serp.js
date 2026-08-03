@@ -248,8 +248,19 @@ async function fetchGoogleCSE(keyword) {
 // MAIN ROUTE: Puppeteer -> SerpApi -> Google CSE
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/analyze', async (req, res) => {
-  const { keyword, location, language } = req.body;
+  const { keyword, location, language, target_url, content_type } = req.body;
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+  let existing_content = '';
+  if (content_type === 'content_refresh' && target_url) {
+    console.log(`[SERP] Scraping existing content for refresh: ${target_url}`);
+    existing_content = await scrapeExistingContent(target_url);
+  }
+
+  const formatResult = (resObj) => {
+    if (existing_content) resObj.existing_content = existing_content;
+    return resObj;
+  };
 
   // Tier 1: Puppeteer Live Scrape
   try {
@@ -258,7 +269,7 @@ router.post('/analyze', async (req, res) => {
     
     if (result && result.top_results && result.top_results.length > 0) {
       console.log(`[SERP] Chrome scrape successful. Got ${result.top_results.length} results.`);
-      return res.json(result);
+      return res.json(formatResult(result));
     } else {
        throw new Error("No results found in DOM");
     }
@@ -270,7 +281,7 @@ router.post('/analyze', async (req, res) => {
        console.log(`[SERP] Tier 2: Attempting SerpApi for: "${keyword}"...`);
        const serpApiResult = await fetchSerpApi(keyword);
        console.log(`[SERP] SerpApi successful.`);
-       return res.json(serpApiResult);
+       return res.json(formatResult(serpApiResult));
     } catch(serpApiErr) {
        console.warn(`[SERP] SerpApi Fallback failed: ${serpApiErr.message}. Falling back to Google CSE...`);
        
@@ -279,7 +290,7 @@ router.post('/analyze', async (req, res) => {
           console.log(`[SERP] Tier 3: Attempting Google CSE for: "${keyword}"...`);
           const cseResult = await fetchGoogleCSE(keyword);
           console.log(`[SERP] Google CSE successful.`);
-          return res.json(cseResult);
+          return res.json(formatResult(cseResult));
        } catch(cseErr) {
           console.error(`[SERP] Google CSE Fallback failed as well: ${cseErr.message}`);
           
@@ -300,5 +311,24 @@ router.post('/analyze', async (req, res) => {
     }
   }
 });
+
+async function scrapeExistingContent(url) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    const content = await page.evaluate(() => {
+      // Remove scripts, styles, nav, footer
+      document.querySelectorAll('script, style, nav, footer, header').forEach(el => el.remove());
+      return document.body.innerText;
+    });
+    return content;
+  } catch (e) {
+    console.error("Failed to scrape target url:", e);
+    return "";
+  } finally {
+    if (page) await page.close().catch(() => {});
+  }
+}
 
 module.exports = router;

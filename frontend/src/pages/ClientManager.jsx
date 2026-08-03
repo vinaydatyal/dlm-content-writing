@@ -186,7 +186,7 @@ export default function ClientManager() {
         ...prev,
         internal_urls: [...prev.internal_urls, ...formatted]
       }));
-      addToast(`Found ${newUrls.length} URLs from sitemap`, 'success');
+      addToast(`Found ${newUrls.length} URLs. Building Semantic Graph in the background...`, 'success');
       setSitemapUrl('');
     } catch (err) {
       addToast('Failed to fetch sitemap', 'error');

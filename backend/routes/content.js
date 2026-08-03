@@ -63,8 +63,12 @@ CRITICAL: You MUST mimic the exact brand tone, sentence length, and vocabulary s
 
   const internalUrls = parseArray(profile.internal_urls);
   const internalLinksBlock = internalUrls.length > 0 ? `
-INTERNAL LINKS TO WEAVE INTO CONTENT (Find natural opportunities to use these URLs with relevant exact-match or LSI anchor text in Markdown format [anchor text](url)):
-${internalUrls.map(u => `- ${u.url || u.keyword || u}`).join('\n')}
+INTERNAL LINKS TO WEAVE INTO CONTENT (Find natural opportunities to use these URLs. We have provided a Semantic Map of the pages below. Use the most relevant ones with contextual anchor text in Markdown format [anchor text](url)):
+${internalUrls.map(u => {
+    if (typeof u === 'string') return `- ${u}`;
+    if (u.url) return `- URL: ${u.url}\n  Title: ${u.title || 'N/A'}\n  Description: ${u.description || 'N/A'}`;
+    return `- ${u.keyword || u}`;
+  }).join('\n')}
 ` : '';
 
   const eeatBlock = (profile.author_name || profile.company_credentials) ? `
@@ -146,7 +150,7 @@ ${kbBlock}`;
 // Generate strategic SEO brief from SERP data
 // ─────────────────────────────────────────
 router.post('/brief', async (req, res) => {
-  const { keyword, title, serp_data, content_type, client_profile, target_word_count, manual_research } = req.body;
+  const { keyword, title, serp_data, content_type, client_profile, target_word_count, manual_research, existing_content } = req.body;
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
   try {
@@ -168,6 +172,7 @@ ${serp_data.content_gaps && serp_data.content_gaps.length > 0 ? `COMPETITOR CONT
 
     const clientContext = await buildClientContext(client_profile);
     const manualResearchContext = manual_research ? `\nUSER'S MANUAL RESEARCH & CRITICAL INSTRUCTIONS:\n${manual_research}\n` : '';
+    const existingContentContext = existing_content ? `\nEXISTING CONTENT TO REFRESH (Analyze this and find gaps compared to the SERP. We are rewriting this, NOT starting from scratch):\n${existing_content.slice(0, 5000)}\n` : '';
 
     const prompt = `You are an expert SEO content strategist. Create a comprehensive SEO content brief for the following:
 
@@ -179,6 +184,7 @@ TARGET WORD COUNT: ~${target_word_count || 1500} words
 ${serpContext}
 ${clientContext}
 ${manualResearchContext}
+${existingContentContext}
 
 Generate a strategic SEO brief that includes:
 1. **Search Intent Analysis** - What is the user trying to accomplish?
@@ -187,10 +193,10 @@ Generate a strategic SEO brief that includes:
 4. **Primary Keyword Usage** - How to naturally use the keyword
 5. **Semantic Keywords & LSI Terms** - 10-15 related terms to naturally include
 6. **Key Questions to Answer** - Based on PAA and search intent
-7. **Competitor Gaps** - What are top results missing?
+7. **Competitor Gaps** - What are top results missing? ${existing_content ? 'Also, what is the EXISTING CONTENT missing compared to the SERP?' : ''}
 8. **EEAT Signals** - How to demonstrate expertise and trustworthiness
 9. **Tone & Style Guidelines** - How to write this content
-10. **Content Structure Notes** - Recommended format (listicle, guide, how-to, etc.)
+10. **Content Structure Notes** - Recommended format (listicle, guide, how-to, etc.) ${existing_content ? '(Note: Preserve the core essence of the existing content but expand and refresh it.)' : ''}
 
 Format as a clean, structured brief that a writer can follow. Do NOT include any preamble, postamble, conversational filler, or intro text like "Here is the brief". Start immediately with the brief content.`;
 
@@ -630,6 +636,99 @@ Return ONLY valid JSON. No preamble, no markdown formatting around the JSON.`;
   } catch (err) {
     console.error('Hooks error:', err);
     res.status(500).json({ error: 'Failed to generate hooks: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/gap-analysis
+// Compare current outline with SERP data to find content gaps
+// ─────────────────────────────────────────
+router.post('/gap-analysis', async (req, res) => {
+  const { keyword, outline, serp_data } = req.body;
+  if (!keyword || !outline) return res.status(400).json({ error: 'Keyword and outline are required' });
+
+  try {
+    const ai = await getPuter();
+    
+    let competitorsContext = '';
+    if (serp_data && serp_data.top_results) {
+      competitorsContext = serp_data.top_results.slice(0, 3).map((r, i) => 
+        `Competitor ${i+1} (${r.title}):\n${r.snippet || r.url}\n`
+      ).join('\n\n');
+    }
+
+    const currentOutlineStr = outline.map(s => `${s.type.toUpperCase()}: ${s.heading}`).join('\n');
+
+    const prompt = `You are a master SEO strategist. I am writing an article about "${keyword}".
+    
+MY CURRENT OUTLINE:
+${currentOutlineStr}
+
+COMPETITOR DATA (Top ranking pages for this keyword):
+${competitorsContext || (serp_data && serp_data.people_also_ask ? serp_data.people_also_ask.join('\n') : 'Analyze based on general best practices for this keyword.')}
+
+Identify 3 to 5 "Content Gaps" — specific, highly-relevant subtopics or questions that my competitors cover (or that users strongly want to know) but are MISSING from my current outline.
+
+Return a JSON array of objects representing these missing sections, in this exact format:
+[
+  {
+    "heading": "The suggested missing heading",
+    "type": "h2",
+    "notes": "Brief explanation of why this section is important to add, based on competitor analysis.",
+    "target_words": 150
+  }
+]
+
+Return ONLY valid JSON. No preamble, no markdown formatting around the JSON.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
+
+    let gaps;
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      gaps = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+    } catch {
+      gaps = [];
+    }
+
+    const tokensUsed = 300;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'gap_analysis', tokensUsed]);
+
+    res.json({ gaps, tokens_used: tokensUsed });
+  } catch (err) {
+    console.error('Gap analysis error:', err);
+    res.status(500).json({ error: 'Failed to run gap analysis: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/originality-check
+// Simulated Plagiarism and AI check
+// ─────────────────────────────────────────
+router.post('/originality-check', async (req, res) => {
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Content is required' });
+
+  try {
+    // Simulate API delay (e.g., calling Copyscape or Originality.ai)
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // Generate random realistic "good" scores 
+    // Plagiarism free: 94% - 100%
+    const plagiarismScore = Math.floor(Math.random() * (100 - 94 + 1)) + 94;
+    // Human written: 88% - 98%
+    const humanScore = Math.floor(Math.random() * (98 - 88 + 1)) + 88;
+
+    res.json({
+      originality: plagiarismScore,
+      human: humanScore,
+      details: "This is a simulated response. To get real scores, integrate your Copyscape and Originality.ai API keys in backend/routes/content.js."
+    });
+  } catch (err) {
+    console.error('Originality check error:', err);
+    res.status(500).json({ error: 'Failed to check originality: ' + err.message });
   }
 });
 

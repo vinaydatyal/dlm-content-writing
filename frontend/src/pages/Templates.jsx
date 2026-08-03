@@ -36,10 +36,6 @@ export default function Templates() {
   };
 
   const handleEdit = (tpl) => {
-    if (tpl.is_default) {
-      addToast('System default templates cannot be edited. Create a new one instead.', 'warning');
-      return;
-    }
     setEditingId(tpl.id);
     setName(tpl.name);
     setType(tpl.type);
@@ -135,8 +131,7 @@ export default function Templates() {
                   className="btn btn-secondary" 
                   style={{ padding: '6px 12px', fontSize: '0.85rem' }}
                   onClick={() => handleEdit(tpl)}
-                  disabled={tpl.is_default}
-                  title={tpl.is_default ? "Cannot edit system templates" : "Edit template"}
+                  title="Edit template"
                 >
                   <Edit2 size={14} /> Edit
                 </button>

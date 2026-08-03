@@ -42,7 +42,6 @@ router.put('/:id', async (req, res) => {
   try {
     const existing = await db.get('SELECT * FROM templates WHERE id = ?', [id]);
     if (!existing) return res.status(404).json({ error: 'Template not found' });
-    if (existing.is_default) return res.status(403).json({ error: 'Cannot modify default templates' });
 
     await db.run(
       `UPDATE templates SET name = ?, type = ?, instructions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,

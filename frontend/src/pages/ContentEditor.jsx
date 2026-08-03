@@ -160,6 +160,12 @@ export default function ContentEditor() {
   const [generatingHooks, setGeneratingHooks] = useState(false);
   const [hooks, setHooks] = useState(null);
 
+  const [analyzingGaps, setAnalyzingGaps] = useState(false);
+  const [contentGaps, setContentGaps] = useState(null);
+  
+  const [checkingOriginality, setCheckingOriginality] = useState(false);
+  const [originalityResult, setOriginalityResult] = useState(null);
+
   const contentRef = useRef(null);
 
   useEffect(() => {
@@ -458,6 +464,46 @@ export default function ContentEditor() {
     saveArticle({ outline: article.outline });
   };
 
+  const handleAnalyzeGaps = async () => {
+    setAnalyzingGaps(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/content/gap-analysis`, {
+        keyword: project.keyword,
+        outline: article.outline,
+        serp_data: typeof article.serp_data === 'string' ? JSON.parse(article.serp_data || '{}') : article.serp_data
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setContentGaps(res.data.gaps);
+    } catch (err) {
+      addToast('Failed to analyze gaps', 'error');
+    } finally {
+      setAnalyzingGaps(false);
+    }
+  };
+
+  const handleAddGapToOutline = (gap, index) => {
+    const newOutline = [...(article.outline || []), gap];
+    setArticle(prev => ({ ...prev, outline: newOutline }));
+    saveArticle({ outline: newOutline });
+    setContentGaps(prev => prev.filter((_, i) => i !== index));
+    addToast('Gap added to outline', 'success');
+  };
+
+  const handleOriginalityCheck = async () => {
+    setCheckingOriginality(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/content/originality-check`, {
+        content: article.content
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setOriginalityResult(res.data);
+    } catch (err) {
+      addToast('Failed to run originality check', 'error');
+    } finally {
+      setCheckingOriginality(false);
+    }
+  };
+
   const addOutlineSection = () => {
     const newOutline = [...(article.outline || []), { type: 'h2', heading: 'New Section', target_words: 200, notes: '' }];
     setArticle(prev => ({ ...prev, outline: newOutline }));
@@ -574,7 +620,7 @@ export default function ContentEditor() {
               <button 
                 onClick={() => setActiveTab('fact-check')}
                 style={{ flex: '1 1 20%', padding: '12px 6px', background: activeTab === 'fact-check' ? 'var(--bg-surface-hover)' : 'transparent', border: 'none', color: activeTab === 'fact-check' ? '#38BDF8' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem' }}
-              >🛡️ Brand Check</button>
+              >🛡️ Brand & Originality</button>
             </div>
 
             <div style={{ padding: '16px', maxHeight: 'calc(100vh - 250px)', overflowY: 'auto' }}>
@@ -680,13 +726,51 @@ export default function ContentEditor() {
                     );
                   })}
 
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={addOutlineSection}
-                    style={{ marginTop: '8px', width: '100%' }}
-                  >
-                    <Plus size={16} /> Add Section
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={addOutlineSection}
+                      style={{ flex: 1 }}
+                    >
+                      <Plus size={16} /> Add Section
+                    </button>
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={handleAnalyzeGaps}
+                      disabled={analyzingGaps}
+                      style={{ flex: 1, borderColor: '#38BDF8', color: '#38BDF8' }}
+                    >
+                      {analyzingGaps ? <RefreshCw size={16} className="spinner" /> : <Sparkles size={16} />} 
+                      Analyze Gaps
+                    </button>
+                  </div>
+
+                  {contentGaps && contentGaps.length > 0 && (
+                    <div style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                      <h4 style={{ fontSize: '0.85rem', color: '#38BDF8', marginBottom: '12px' }}>Competitor Content Gaps Found:</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {contentGaps.map((gap, i) => (
+                          <div key={i} style={{ padding: '12px', background: 'rgba(56, 189, 248, 0.05)', border: '1px dashed rgba(56, 189, 248, 0.3)', borderRadius: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <h5 style={{ margin: '0 0 4px 0', fontSize: '0.85rem', color: 'var(--text-main)' }}>{gap.heading}</h5>
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>{gap.notes}</p>
+                              </div>
+                              <button className="btn btn-primary" onClick={() => handleAddGapToOutline(gap, i)} style={{ padding: '4px 8px', fontSize: '0.75rem' }}>
+                                + Add
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {contentGaps && contentGaps.length === 0 && (
+                    <div style={{ marginTop: '16px', padding: '12px', textAlign: 'center', background: 'rgba(16, 185, 129, 0.1)', color: '#10B981', borderRadius: '4px', fontSize: '0.8rem' }}>
+                      Your outline is comprehensive! No major competitor gaps found.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -797,16 +881,51 @@ export default function ContentEditor() {
               )}
 
               {activeTab === 'fact-check' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {!factCheckResult && !factChecking && (
-                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)' }}>
-                      <ShieldCheck size={48} style={{ opacity: 0.5, marginBottom: '16px' }} />
-                      <p>Run a brand compliance check to ensure the AI didn't invent fake product features or use banned words.</p>
-                      <button className="btn btn-primary" onClick={handleFactCheck} style={{ marginTop: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {/* Originality Check Section */}
+                  <div style={{ padding: '20px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                    <h3 style={{ margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><Sparkles size={18} color="#A78BFA" /> Plagiarism & AI Check</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Scan your content for plagiarism and AI footprint before publishing.</p>
+                    
+                    {!originalityResult && !checkingOriginality && (
+                      <button className="btn btn-secondary" onClick={handleOriginalityCheck}>
+                        Run Originality Scan
+                      </button>
+                    )}
+
+                    {checkingOriginality && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#A78BFA' }}>
+                        <RefreshCw size={16} className="spinner" /> Scanning document...
+                      </div>
+                    )}
+
+                    {originalityResult && (
+                      <div style={{ display: 'flex', gap: '16px', marginTop: '16px' }}>
+                        <div style={{ flex: 1, padding: '16px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10B981' }}>{originalityResult.originality}%</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Original (Plagiarism-Free)</div>
+                        </div>
+                        <div style={{ flex: 1, padding: '16px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#38BDF8' }}>{originalityResult.human}%</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Human-Written</div>
+                        </div>
+                      </div>
+                    )}
+                    {originalityResult && originalityResult.details && (
+                      <p style={{ fontSize: '0.75rem', color: '#F59E0B', marginTop: '12px', fontStyle: 'italic' }}>{originalityResult.details}</p>
+                    )}
+                  </div>
+
+                  {/* Brand Compliance Section */}
+                  <div style={{ padding: '20px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                    <h3 style={{ margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} color="#38BDF8" /> Brand Compliance</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Ensure the AI didn't invent fake product features or use banned words.</p>
+                    
+                    {!factCheckResult && !factChecking && (
+                      <button className="btn btn-secondary" onClick={handleFactCheck}>
                         Verify Brand Compliance
                       </button>
-                    </div>
-                  )}
+                    )}
 
                   {factChecking && (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>

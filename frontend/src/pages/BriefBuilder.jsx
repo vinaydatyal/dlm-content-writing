@@ -22,6 +22,7 @@ export default function BriefBuilder() {
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState('');
   const [contentType, setContentType] = useState('blog_post');
+  const [targetUrl, setTargetUrl] = useState('');
   
   // Data State
   const [serpData, setSerpData] = useState(null);
@@ -91,12 +92,17 @@ export default function BriefBuilder() {
           keyword,
           title,
           client_id: clientId || null,
-          content_type: contentType
+          content_type: contentType,
+          target_url: contentType === 'content_refresh' ? targetUrl : ''
         }, { headers });
         setProjectId(projRes.data.id);
 
         // 2. Fetch SERP Data
-        const serpRes = await axios.post(`${API_URL}/serp/analyze`, { keyword }, { headers });
+        const serpRes = await axios.post(`${API_URL}/serp/analyze`, { 
+          keyword,
+          target_url: contentType === 'content_refresh' ? targetUrl : '',
+          content_type: contentType
+        }, { headers });
         setSerpData(serpRes.data);
         
         // Save SERP to article
@@ -118,6 +124,7 @@ export default function BriefBuilder() {
           keyword,
           title,
           serp_data: serpData,
+          existing_content: serpData.existing_content || '',
           content_type: contentType,
           client_profile: clientProfile,
           manual_research: manualResearch
@@ -251,6 +258,7 @@ export default function BriefBuilder() {
                   onChange={(e) => setContentType(e.target.value)}
                 >
                   <option value="blog_post">Blog Post</option>
+                  <option value="content_refresh">Content Refresh (Optimizer)</option>
                   <option value="product_page">Product Page</option>
                   <option value="location_page">Location Page</option>
                   <option value="service_page">Service Page</option>
@@ -258,6 +266,19 @@ export default function BriefBuilder() {
                 </select>
               </div>
             </div>
+
+            {contentType === 'content_refresh' && (
+              <div className="input-group" style={{ marginTop: '16px' }}>
+                <label>Target URL to Refresh *</label>
+                <input 
+                  type="url" 
+                  className="input" 
+                  placeholder="https://example.com/existing-article"
+                  value={targetUrl}
+                  onChange={(e) => setTargetUrl(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="input-group" style={{ marginTop: '16px' }}>
               <label>Content Brief Template (Optional)</label>
