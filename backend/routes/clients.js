@@ -202,4 +202,51 @@ async function enrichAndSaveUrls(clientId, urls) {
   console.log(`Finished enrichment for client ${clientId}`);
 }
 
+let puterClient;
+async function getPuter() {
+  if (!puterClient) {
+    const mod = await import('@heyputer/puter.js');
+    puterClient = mod.puter;
+    if (process.env.PUTER_API_TOKEN) {
+      puterClient.setAuthToken(process.env.PUTER_API_TOKEN);
+    }
+  }
+  return puterClient;
+}
+
+// POST /api/clients/test-voice
+// Live Brand Voice Sandbox Tester
+router.post('/test-voice', async (req, res) => {
+  const { name, industry, tone, brand_voice, brand_archetype, target_audience, banned_words, sample_prompt } = req.body;
+  const testTopic = sample_prompt || 'Explain why investing in organic search engine optimization creates compounding revenue growth.';
+
+  try {
+    const ai = await getPuter();
+    const bannedList = Array.isArray(banned_words) ? banned_words.join(', ') : (banned_words || 'None');
+
+    const prompt = `You are a world-class copywriter and brand voice specialist for "${name || 'Our Company'}".
+Industry: ${industry || 'General Business'}
+Target Audience: ${target_audience || 'Prospective clients and buyers'}
+Tone of Voice: ${tone || 'Professional & Authoritative'}
+Brand Voice Archetype: ${brand_archetype || 'Authoritative Guide'}
+Specific Voice Guidelines: "${brand_voice || 'Clear, confident, actionable, and customer-centric.'}"
+Strictly Banned Words / Clichés: ${bannedList}
+
+TEST PROMPT:
+"${testTopic}"
+
+INSTRUCTIONS:
+Write a 2 to 3 paragraph sample response answering the test prompt while strictly showcasing this client's unique brand voice, vocabulary, rhythm, and tone. Do NOT use any of the banned words.
+Format with clean Markdown. Output only the sample copy without preamble.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const sample_output = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || '');
+
+    res.json({ sample_output: sample_output.trim() });
+  } catch (err) {
+    console.error('Voice test error:', err);
+    res.status(500).json({ error: 'Failed to generate voice sample: ' + err.message });
+  }
+});
+
 module.exports = router;

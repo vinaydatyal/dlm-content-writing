@@ -6,12 +6,24 @@ const db = require('../db');
 const router = express.Router();
 router.use(authenticate);
 
-// Get all projects (optionally filter by client)
+// Get all projects (optionally filter by client or cluster)
 router.get('/', async (req, res) => {
   try {
-    const { client_id } = req.query;
+    const { client_id, cluster_id } = req.query;
     let projects;
-    if (client_id) {
+    if (client_id && cluster_id) {
+      projects = await db.all(
+        `SELECT p.*, c.name as client_name, c.color as client_color,
+         a.id as article_id, a.word_count, a.status as article_status, 
+         a.meta_title, a.meta_description, a.readability_score
+         FROM projects p
+         LEFT JOIN clients c ON p.client_id = c.id
+         LEFT JOIN articles a ON a.project_id = p.id
+         WHERE p.client_id = ? AND p.cluster_id = ?
+         ORDER BY p.created_at DESC`,
+        [client_id, cluster_id]
+      );
+    } else if (client_id) {
       projects = await db.all(
         `SELECT p.*, c.name as client_name, c.color as client_color,
          a.id as article_id, a.word_count, a.status as article_status, 
@@ -22,6 +34,18 @@ router.get('/', async (req, res) => {
          WHERE p.client_id = ?
          ORDER BY p.created_at DESC`,
         [client_id]
+      );
+    } else if (cluster_id) {
+      projects = await db.all(
+        `SELECT p.*, c.name as client_name, c.color as client_color,
+         a.id as article_id, a.word_count, a.status as article_status, 
+         a.meta_title, a.meta_description, a.readability_score
+         FROM projects p
+         LEFT JOIN clients c ON p.client_id = c.id
+         LEFT JOIN articles a ON a.project_id = p.id
+         WHERE p.cluster_id = ?
+         ORDER BY p.created_at DESC`,
+        [cluster_id]
       );
     } else {
       projects = await db.all(
@@ -66,17 +90,21 @@ router.get('/:id', async (req, res) => {
 // Create project
 router.post('/', async (req, res) => {
   try {
-    const { client_id, keyword, title, secondary_keywords, content_type, target_url, target_word_count } = req.body;
+    const { client_id, cluster_id, keyword, title, secondary_keywords, content_type, target_url, target_word_count, target_publish_date, planned_notes, status } = req.body;
     if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
     const id = await db.insert(
-      `INSERT INTO projects (client_id, keyword, secondary_keywords, content_type, target_url, target_word_count, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO projects (client_id, cluster_id, keyword, secondary_keywords, content_type, target_url, target_word_count, target_publish_date, planned_notes, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
-        client_id || null, keyword,
+        client_id || null, 
+        cluster_id || null,
+        keyword,
         JSON.stringify(secondary_keywords || []),
         content_type || 'blog_post',
         target_url || '', target_word_count || 1500,
+        target_publish_date || '', planned_notes || '',
+        status || 'brief',
         req.user.id
       ]
     );
@@ -95,6 +123,49 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create project' });
+  }
+});
+
+// Update project metadata
+router.put('/:id', async (req, res) => {
+  try {
+    const { client_id, cluster_id, keyword, secondary_keywords, content_type, target_url, target_word_count, target_publish_date, planned_notes, status } = req.body;
+    await db.run(
+      `UPDATE projects SET 
+       client_id = COALESCE($1, client_id),
+       cluster_id = COALESCE($2, cluster_id),
+       keyword = COALESCE($3, keyword),
+       secondary_keywords = COALESCE($4, secondary_keywords),
+       content_type = COALESCE($5, content_type),
+       target_url = COALESCE($6, target_url),
+       target_word_count = COALESCE($7, target_word_count),
+       target_publish_date = COALESCE($8, target_publish_date),
+       planned_notes = COALESCE($9, planned_notes),
+       status = COALESCE($10, status),
+       updated_at = CURRENT_TIMESTAMP
+       WHERE id = $11`,
+      [
+        client_id !== undefined ? client_id : null,
+        cluster_id !== undefined ? cluster_id : null,
+        keyword || null,
+        secondary_keywords ? JSON.stringify(secondary_keywords) : null,
+        content_type || null,
+        target_url !== undefined ? target_url : null,
+        target_word_count || null,
+        target_publish_date !== undefined ? target_publish_date : null,
+        planned_notes !== undefined ? planned_notes : null,
+        status || null,
+        req.params.id
+      ]
+    );
+    const updated = await db.get('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+    res.json({
+      ...updated,
+      secondary_keywords: JSON.parse(updated.secondary_keywords || '[]')
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update project' });
   }
 });
 
@@ -162,6 +233,13 @@ router.put('/:id/article', async (req, res) => {
       ]
     );
 
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update article error:', err);
+    res.status(500).json({ error: 'Failed to update article' });
+  }
+});
+
 // Clone / Duplicate project
 router.post('/:id/duplicate', async (req, res) => {
   try {
@@ -172,10 +250,11 @@ router.post('/:id/duplicate', async (req, res) => {
 
     const newKeyword = `${orig.keyword} (Copy)`;
     const newProjectId = await db.insert(
-      `INSERT INTO projects (client_id, keyword, secondary_keywords, content_type, target_url, target_word_count, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (client_id, cluster_id, keyword, secondary_keywords, content_type, target_url, target_word_count, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         orig.client_id,
+        orig.cluster_id || null,
         newKeyword,
         orig.secondary_keywords,
         orig.content_type,
@@ -223,4 +302,3 @@ router.post('/:id/duplicate', async (req, res) => {
 });
 
 module.exports = router;
-

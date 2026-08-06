@@ -4,7 +4,8 @@ import axios from 'axios';
 import { 
   PenTool, CheckCircle2, TrendingUp, Users, FileText, Clock, 
   Sparkles, RefreshCw, Layers, Search, ArrowRight, LayoutTemplate, 
-  Zap, BarChart3, ChevronRight, BookOpen, ShieldCheck, ArrowUpRight
+  Zap, BarChart3, ChevronRight, BookOpen, ShieldCheck, ArrowUpRight,
+  Compass, Network, Target, CalendarDays, Plus
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -44,7 +45,8 @@ export default function Dashboard() {
       const matchesStatus = 
         statusFilter === 'all' ? true :
         statusFilter === 'completed' ? project.status === 'completed' || project.article_status === 'completed' :
-        project.status !== 'completed' && project.article_status !== 'completed';
+        statusFilter === 'planned' ? project.status === 'planned' :
+        project.status !== 'completed' && project.article_status !== 'completed' && project.status !== 'planned';
 
       return matchesSearch && matchesStatus;
     });
@@ -58,8 +60,8 @@ export default function Dashboard() {
     );
   }
 
-  const pipeline = stats?.status_breakdown || { brief: 0, outline: 0, draft: 0, review: 0, completed: 0 };
-  const totalPipeline = (pipeline.brief || 0) + (pipeline.outline || 0) + (pipeline.draft || 0) + (pipeline.review || 0) + (pipeline.completed || 0);
+  const pipeline = stats?.status_breakdown || { brief: 0, outline: 0, draft: 0, review: 0, completed: 0, planned: 0 };
+  const totalPipeline = (pipeline.brief || 0) + (pipeline.outline || 0) + (pipeline.draft || 0) + (pipeline.review || 0) + (pipeline.completed || 0) + (pipeline.planned || 0);
 
   const typeLabels = {
     blog_post: 'Blog Posts',
@@ -71,48 +73,55 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: '1280px', margin: '0 auto' }}>
+    <div className="animate-fade-in" style={{ maxWidth: '1360px', margin: '0 auto' }}>
       
-      {/* Hero Welcome & Quick Launch Banner */}
+      {/* Hero Strategic Command Header */}
       <div className="card" style={{ 
-        marginBottom: '32px', 
+        marginBottom: '28px', 
         padding: '28px 32px', 
-        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(16, 185, 129, 0.08) 100%)',
-        border: '1px solid rgba(99, 102, 241, 0.25)',
+        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.14) 0%, rgba(139, 92, 246, 0.1) 50%, rgba(16, 185, 129, 0.08) 100%)',
+        border: '1px solid rgba(99, 102, 241, 0.28)',
         position: 'relative',
         overflow: 'hidden'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(99, 102, 241, 0.2)', padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', color: 'var(--primary-accent)', fontWeight: 600, marginBottom: '10px' }}>
-              <Sparkles size={14} /> Agency SEO Suite
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(99, 102, 241, 0.2)', padding: '4px 12px', borderRadius: '16px', fontSize: '0.8rem', color: 'var(--primary-accent)', fontWeight: 700, marginBottom: '10px' }}>
+              <Sparkles size={14} /> Enterprise SEO Content Suite
             </div>
-            <h1 style={{ fontSize: '1.85rem', margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
-              Content Command Center
+            <h1 style={{ fontSize: '1.9rem', margin: '0 0 8px 0', letterSpacing: '-0.02em', fontWeight: 800 }}>
+              Strategic Content Operations Hub
             </h1>
-            <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.95rem', maxWidth: '600px', lineHeight: '1.5' }}>
-              Research SERP data, write search-intent articles, optimize NLP entities, and execute high-converting SEO workflows.
+            <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.94rem', maxWidth: '640px', lineHeight: '1.5' }}>
+              Architect topical clusters, mine competitor search gaps, schedule publishing velocity, and write search-intent articles.
             </p>
           </div>
 
-          {/* Quick Action Buttons */}
+          {/* Quick Action Navigation Buttons */}
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button 
-              onClick={() => navigate('/new')} 
+              onClick={() => navigate('/planner')} 
               className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontSize: '0.9rem', fontWeight: 600 }}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontSize: '0.9rem', fontWeight: 700 }}
             >
-              <PenTool size={16} />
-              New Article
+              <Compass size={16} />
+              Topic Strategy Studio
+            </button>
+            <button 
+              onClick={() => navigate('/calendar')} 
+              className="btn btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '0.9rem', fontWeight: 600 }}
+            >
+              <CalendarDays size={16} />
+              Publishing Calendar
             </button>
             <button 
               onClick={() => navigate('/new')} 
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '0.9rem' }}
-              title="Optimize existing live URLs or draft content"
             >
-              <RefreshCw size={15} />
-              Content Optimizer
+              <PenTool size={15} />
+              New Article
             </button>
             <button 
               onClick={() => navigate('/bulk')} 
@@ -120,43 +129,35 @@ export default function Dashboard() {
               style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '0.9rem' }}
             >
               <Layers size={15} />
-              Bulk Pipeline
-            </button>
-            <button 
-              onClick={() => navigate('/templates')} 
-              className="btn btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '0.9rem' }}
-            >
-              <LayoutTemplate size={15} />
-              Templates
+              Bulk Generate
             </button>
           </div>
         </div>
       </div>
 
-      {/* 4 Key Performance Indicators */}
-      <div className="grid-4" style={{ marginBottom: '32px' }}>
+      {/* 4 High-Impact KPI Cards */}
+      <div className="grid-4" style={{ marginBottom: '28px' }}>
         
-        {/* Total Articles */}
-        <div className="card interactive" onClick={() => navigate('/library')} style={{ padding: '20px' }}>
+        {/* Total Articles & Active Clusters */}
+        <div className="card interactive" onClick={() => navigate('/planner')} style={{ padding: '20px' }}>
           <div className="flex-between" style={{ marginBottom: '12px' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Articles</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Topic Clusters</span>
             <div style={{ background: 'rgba(99, 102, 241, 0.15)', padding: '8px', borderRadius: '10px', color: 'var(--primary-accent)' }}>
-              <FileText size={18} />
+              <Network size={18} />
             </div>
           </div>
           <div style={{ fontSize: '2.2rem', fontWeight: 800, fontFamily: 'var(--font-display)', lineHeight: '1.1' }}>
-            {stats?.total_articles || 0}
+            {stats?.total_clusters || 0}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            <span style={{ color: 'var(--primary-accent)', fontWeight: 600 }}>{stats?.total_projects || 0}</span> projects created
+            <span style={{ color: 'var(--primary-accent)', fontWeight: 700 }}>{stats?.planned_projects || 0}</span> planned spoke topics
           </div>
         </div>
 
         {/* Total Words & Hours Saved */}
         <div className="card" style={{ padding: '20px' }}>
           <div className="flex-between" style={{ marginBottom: '12px' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Words Written</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Words Written</span>
             <div style={{ background: 'rgba(245, 158, 11, 0.15)', padding: '8px', borderRadius: '10px', color: '#F59E0B' }}>
               <Zap size={18} />
             </div>
@@ -170,10 +171,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Weekly Output */}
-        <div className="card interactive" onClick={() => navigate('/library')} style={{ padding: '20px' }}>
+        {/* 7-Day Velocity */}
+        <div className="card interactive" onClick={() => navigate('/calendar')} style={{ padding: '20px' }}>
           <div className="flex-between" style={{ marginBottom: '12px' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>7-Day Output</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Weekly Velocity</span>
             <div style={{ background: 'rgba(16, 185, 129, 0.15)', padding: '8px', borderRadius: '10px', color: '#10B981' }}>
               <TrendingUp size={18} />
             </div>
@@ -190,7 +191,7 @@ export default function Dashboard() {
         {/* Active Client Brands */}
         <div className="card interactive" onClick={() => navigate('/clients')} style={{ padding: '20px' }}>
           <div className="flex-between" style={{ marginBottom: '12px' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Client Brands</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Client Portfolios</span>
             <div style={{ background: 'rgba(59, 130, 246, 0.15)', padding: '8px', borderRadius: '10px', color: '#3B82F6' }}>
               <Users size={18} />
             </div>
@@ -206,52 +207,57 @@ export default function Dashboard() {
       </div>
 
       {/* Production Pipeline Progress Tracker */}
-      <div className="card" style={{ marginBottom: '32px', padding: '20px 24px' }}>
+      <div className="card" style={{ marginBottom: '28px', padding: '20px 24px' }}>
         <div className="flex-between" style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <BarChart3 size={18} color="var(--primary-accent)" />
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Production Pipeline</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Production & Publishing Pipeline</h3>
           </div>
           <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
             {totalPipeline} total workflow items
           </span>
         </div>
 
-        {/* Pipeline Stage Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
+        {/* Pipeline Stage Cards (6 stages) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '10px' }}>
           
-          <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #6366f1' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>1. Briefing</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{pipeline.brief || 0}</div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #8b5cf6' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>📅 Planned</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.planned || 0}</div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #8b5cf6' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>2. Outlining</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{pipeline.outline || 0}</div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #6366f1' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>1. Briefing</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.brief || 0}</div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #f59e0b' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>3. Drafting</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{pipeline.draft || 0}</div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #3b82f6' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>2. Outlining</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.outline || 0}</div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #06b6d4' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>4. Review & NLP</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{pipeline.review || 0}</div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #f59e0b' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>3. Drafting</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.draft || 0}</div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #10b981' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>5. Completed</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{pipeline.completed || 0}</div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #06b6d4' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>4. Review & NLP</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.review || 0}</div>
+          </div>
+
+          <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #10b981' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>5. Completed</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>{pipeline.completed || 0}</div>
           </div>
 
         </div>
       </div>
 
-      {/* Main Content Area: 2-Column Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '28px', alignItems: 'start' }}>
+      {/* Main Grid: Projects Table & Planning Spotlights */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '28px', alignItems: 'start' }}>
         
-        {/* Left Column: Recent Projects Table & Search */}
+        {/* Left Column: Projects Table & Search */}
         <div>
           <div className="card" style={{ padding: '24px' }}>
             <div className="flex-between" style={{ marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
@@ -279,6 +285,13 @@ export default function Dashboard() {
                   In Progress
                 </button>
                 <button 
+                  className={`btn ${statusFilter === 'planned' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.78rem', borderRadius: '16px' }}
+                  onClick={() => setStatusFilter('planned')}
+                >
+                  Planned
+                </button>
+                <button 
                   className={`btn ${statusFilter === 'completed' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '4px 10px', fontSize: '0.78rem', borderRadius: '16px' }}
                   onClick={() => setStatusFilter('completed')}
@@ -294,7 +307,7 @@ export default function Dashboard() {
               <input
                 type="text"
                 className="input"
-                placeholder="Search projects by keyword, client, or type..."
+                placeholder="Search projects by keyword, client, or format..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{ paddingLeft: '36px', fontSize: '0.88rem' }}
@@ -348,6 +361,8 @@ export default function Dashboard() {
                           <span className={`badge ${
                             project.status === 'completed' || project.article_status === 'completed' 
                               ? 'badge-green' 
+                              : project.status === 'planned'
+                              ? 'badge-purple'
                               : 'badge-yellow'
                           }`} style={{ textTransform: 'capitalize' }}>
                             {project.status ? project.status.replace('_', ' ') : 'Draft'}
@@ -371,7 +386,7 @@ export default function Dashboard() {
                     <tr>
                       <td colSpan="6" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         <BookOpen size={28} style={{ opacity: 0.4, margin: '0 auto 8px auto', display: 'block' }} />
-                        No content projects found. Click <strong>"New Article"</strong> above to launch your first SEO project!
+                        No content projects found. Click <strong>"New Article"</strong> or <strong>"Topic Strategy Studio"</strong> above!
                       </td>
                     </tr>
                   )}
@@ -394,45 +409,86 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right Column: Content Types & Active Client Intelligence */}
+        {/* Right Column: Strategic Topic Hubs & Competitor Gap Spotlights */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* Content Format Distribution */}
+          {/* Active Topic Clusters Spotlight Card */}
           <div className="card" style={{ padding: '20px' }}>
-            <h3 style={{ fontSize: '0.95rem', margin: '0 0 16px 0', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Layers size={16} color="var(--primary-accent)" /> Content Types Produced
-            </h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {stats?.type_breakdown && Object.keys(stats.type_breakdown).length > 0 ? (
-                Object.entries(stats.type_breakdown).map(([key, count]) => {
-                  const label = typeLabels[key] || key.replace('_', ' ');
-                  const pct = stats.total_projects > 0 ? Math.round((count / stats.total_projects) * 100) : 0;
-                  return (
-                    <div key={key}>
-                      <div className="flex-between" style={{ fontSize: '0.82rem', marginBottom: '4px' }}>
-                        <span style={{ color: 'var(--text-main)', textTransform: 'capitalize' }}>{label}</span>
-                        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{count} ({pct}%)</span>
-                      </div>
-                      <div style={{ height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--primary-accent)', borderRadius: '3px' }} />
-                      </div>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Compass size={16} color="var(--primary-accent)" /> Active Topic Clusters
+              </h3>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => navigate('/planner')}
+                style={{ padding: '2px 8px', fontSize: '0.75rem', fontWeight: 600 }}
+              >
+                Strategy Studio
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {stats?.recent_clusters?.length > 0 ? (
+                stats.recent_clusters.map(cluster => (
+                  <div 
+                    key={cluster.id}
+                    className="interactive"
+                    onClick={() => navigate('/planner')}
+                    style={{ 
+                      padding: '12px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)'
+                    }}
+                  >
+                    <div className="flex-between" style={{ marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                        {cluster.pillar_keyword}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(99,102,241,0.15)', color: 'var(--primary-accent)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                        {cluster.cluster_topics?.length || 0} Spokes
+                      </span>
                     </div>
-                  );
-                })
+                    {cluster.client_name && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Brand: {cluster.client_name}
+                      </div>
+                    )}
+                  </div>
+                ))
               ) : (
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
-                  No content type data yet.
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '14px 0' }}>
+                  No topic clusters architected yet. <br />
+                  <button className="btn btn-primary" onClick={() => navigate('/planner')} style={{ marginTop: '8px', fontSize: '0.8rem', padding: '6px 12px' }}>
+                    <Plus size={14} /> Architect First Cluster
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
+          {/* Competitor Gap Mining Quick Action */}
+          <div className="card" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(99, 102, 241, 0.06) 100%)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#EF4444', fontWeight: 700, fontSize: '0.9rem' }}>
+              <Target size={16} /> Competitor SERP Gap Scanner
+            </div>
+            <p style={{ fontSize: '0.83rem', color: 'var(--text-main)', margin: '0 0 12px 0', lineHeight: '1.5' }}>
+              Scan rival domains to uncover missing topics, thin competitor guides, and Position Zero PAA questions.
+            </p>
+            <button 
+              onClick={() => navigate('/planner')} 
+              className="btn btn-primary"
+              style={{ width: '100%', fontSize: '0.82rem', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontWeight: 700 }}
+            >
+              <Target size={15} /> Mine Competitor Gaps Now
+            </button>
+          </div>
+
           {/* Top Client Brands */}
           <div className="card" style={{ padding: '20px' }}>
             <div className="flex-between" style={{ marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Users size={16} color="#3B82F6" /> Top Client Brands
+              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Users size={16} color="#3B82F6" /> Top Client Portfolios
               </h3>
               <button 
                 className="btn btn-secondary" 
@@ -470,31 +526,9 @@ export default function Dashboard() {
                 ))
               ) : (
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
-                  No clients configured. <br />
-                  <button className="btn btn-secondary" onClick={() => navigate('/clients')} style={{ marginTop: '8px', fontSize: '0.78rem' }}>
-                    + Add First Client
-                  </button>
+                  No clients configured yet.
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* Agency Best Practice SEO Spotlight */}
-          <div className="card" style={{ padding: '18px 20px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#10B981', fontWeight: 600, fontSize: '0.85rem' }}>
-              <ShieldCheck size={16} /> SEO Pro Tip
-            </div>
-            <p style={{ fontSize: '0.83rem', color: 'var(--text-main)', margin: '0 0 10px 0', lineHeight: '1.5' }}>
-              For Google Position Zero, answer the search query directly within the first <strong>40-60 words</strong> using concise definition phrasing.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button 
-                onClick={() => navigate('/templates')} 
-                className="btn btn-secondary"
-                style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-              >
-                Browse SEO Templates <ArrowUpRight size={12} />
-              </button>
             </div>
           </div>
 

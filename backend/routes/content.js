@@ -890,6 +890,12 @@ router.post('/inline-ai', async (req, res) => {
 
     let instruction = '';
     switch (action) {
+      case 'inject_keyword':
+        instruction = `Naturally embed the target keyword or SEO phrase ("${custom_prompt || keyword}") into the following selected text in a grammatically sound and contextually meaningful way without keyword stuffing.`;
+        break;
+      case 'add_proof':
+        instruction = 'Add a concrete real-world case study example, proof point, or statistical evidence to validate the claim in the following text.';
+        break;
       case 'expand':
         instruction = 'Expand and elaborate on the following selected text. Provide more technical clarity, real-world examples, and actionable depth while maintaining great pacing. Keep it tightly relevant.';
         break;

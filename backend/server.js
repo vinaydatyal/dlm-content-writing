@@ -26,6 +26,7 @@ app.use('/api/templates', require('./routes/templates'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/knowledge', require('./routes/knowledge'));
 app.use('/api/bulk', require('./routes/bulk'));
+app.use('/api/planning', require('./routes/planning'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -46,7 +47,10 @@ app.get('/api/stats', require('./middleware/auth').authenticate, async (req, res
       recentRes,
       statusCounts,
       typeCounts,
-      topClients
+      topClients,
+      clustersRes,
+      plannedRes,
+      recentClusters
     ] = await Promise.all([
       db.get('SELECT COUNT(*) as count FROM clients'),
       db.get('SELECT COUNT(*) as count FROM projects'),
@@ -68,10 +72,18 @@ app.get('/api/stats', require('./middleware/auth').authenticate, async (req, res
          FROM clients c
          LEFT JOIN projects p ON p.client_id = c.id
          GROUP BY c.id ORDER BY project_count DESC LIMIT 5`
-      )
+      ),
+      db.get('SELECT COUNT(*) as count FROM topic_clusters').catch(() => ({ count: 0 })),
+      db.get("SELECT COUNT(*) as count FROM projects WHERE status = 'planned'").catch(() => ({ count: 0 })),
+      db.all(
+        `SELECT tc.*, c.name as client_name, c.color as client_color 
+         FROM topic_clusters tc 
+         LEFT JOIN clients c ON tc.client_id = c.id 
+         ORDER BY tc.created_at DESC LIMIT 4`
+      ).catch(() => [])
     ]);
 
-    const statusMap = { brief: 0, outline: 0, draft: 0, review: 0, completed: 0 };
+    const statusMap = { brief: 0, outline: 0, draft: 0, review: 0, completed: 0, planned: 0 };
     (statusCounts || []).forEach(row => {
       if (row.status && statusMap[row.status] !== undefined) {
         statusMap[row.status] = parseInt(row.count || 0, 10);
@@ -94,12 +106,18 @@ app.get('/api/stats', require('./middleware/auth').authenticate, async (req, res
       total_projects: parseInt(projectsRes?.count || 0, 10),
       total_articles: parseInt(articlesRes?.count || 0, 10),
       articles_this_week: parseInt(weekRes?.count || 0, 10),
+      total_clusters: parseInt(clustersRes?.count || 0, 10),
+      planned_projects: parseInt(plannedRes?.count || 0, 10),
       total_words: totalWords,
       hours_saved: hoursSaved,
       tokens_used: parseInt(tokensRes?.total || 0, 10),
       status_breakdown: statusMap,
       type_breakdown: typeMap,
       top_clients: topClients || [],
+      recent_clusters: (recentClusters || []).map(cl => ({
+        ...cl,
+        cluster_topics: cl.cluster_topics ? (typeof cl.cluster_topics === 'string' ? JSON.parse(cl.cluster_topics) : cl.cluster_topics) : []
+      })),
       recent_projects: recentRes || [],
     };
     res.json(stats);

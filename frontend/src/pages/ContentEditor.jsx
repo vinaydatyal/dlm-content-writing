@@ -1,21 +1,49 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { 
   Play, Download, Settings, RefreshCw, FileText, CheckCircle, AlertTriangle, 
-  Sparkles, Undo2, BarChart3, Trash2, Plus, ShieldCheck, Eye, Edit3, Search,
+  Sparkles, Undo2, Redo2, History, BarChart3, Trash2, Plus, ShieldCheck, Eye, Edit3, Search,
   ChevronDown, ChevronRight, BookOpen, Users, Compass, Zap, HelpCircle, 
   ExternalLink, Copy, List, Heading1, Heading2, Heading3, Bold, Italic, 
-  Quote, Table, Wand2, Scissors, TrendingUp, Check, Layers, Award
+  Quote, Table, Wand2, Scissors, TrendingUp, Check, Layers, Award, Columns,
+  Share2, FileDown, CheckCheck, Scale
 } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
+import DiffReviewModal from '../components/DiffReviewModal';
+import RevisionsModal from '../components/RevisionsModal';
+import ExportCenterModal from '../components/ExportCenterModal';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Helper: Escape string for safe RegExp
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Slices a section out of the full article content given a heading string
+function extractSectionSlice(fullContent = '', headingText = '') {
+  if (!fullContent || !headingText) return null;
+  const escaped = escapeRegex(headingText.trim());
+  const headingRegex = new RegExp(`(^|\\n)(#{1,3}\\s+${escaped}[^\\n]*\\n?)`, 'i');
+  const match = headingRegex.exec(fullContent);
+  if (!match) return null;
+
+  const startIndex = match.index + (match[1] ? match[1].length : 0);
+  const remaining = fullContent.slice(startIndex + match[2].length);
+  const nextHeadingRegex = /(^|\n)#{1,3}\s+/m;
+  const nextMatch = nextHeadingRegex.exec(remaining);
+
+  const endIndex = nextMatch 
+    ? startIndex + match[2].length + nextMatch.index 
+    : fullContent.length;
+
+  return {
+    startIndex,
+    endIndex,
+    originalText: fullContent.slice(startIndex, endIndex).trim()
+  };
 }
 
 // ─── SEO Scoring Utilities ───
@@ -69,7 +97,6 @@ function ScoreGauge({ score, size = 80, strokeWidth = 8, label = 'Content Score'
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
       <div style={{ position: 'relative', width: size, height: size }}>
         <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          {/* Background circle */}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -78,7 +105,6 @@ function ScoreGauge({ score, size = 80, strokeWidth = 8, label = 'Content Score'
             strokeWidth={strokeWidth}
             fill="transparent"
           />
-          {/* Progress circle */}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -129,9 +155,24 @@ export default function ContentEditor() {
   // Tabs: 'editor' | 'nlp' | 'competitors' | 'research' | 'score' | 'hooks' | 'polish' | 'fact-check'
   const [activeTab, setActiveTab] = useState('editor');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [contentHistory, setContentHistory] = useState([]);
   const [projectInstructions, setProjectInstructions] = useState('');
   
+  // ─── Undo, Redo, Revisions & Diff State ───
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  const [showRevisionsModal, setShowRevisionsModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  
+  const [diffModal, setDiffModal] = useState({
+    isOpen: false,
+    title: '',
+    subtitle: '',
+    originalContent: '',
+    newContent: '',
+    onAccept: null,
+    onAppend: null
+  });
+
   // Compliance & Quality State
   const [factChecking, setFactChecking] = useState(false);
   const [factCheckResult, setFactCheckResult] = useState(null);
@@ -214,7 +255,7 @@ export default function ContentEditor() {
     }
   };
 
-  // ─── Save & History ───
+  // ─── Save & History Engine ───
   const saveArticle = async (updates) => {
     try {
       const token = localStorage.getItem('token');
@@ -227,19 +268,92 @@ export default function ContentEditor() {
     }
   };
 
-  const pushHistory = (label) => {
+  const pushHistory = (label, currentContentOverride) => {
+    const textToSave = currentContentOverride !== undefined ? currentContentOverride : (article?.content || '');
+    if (!textToSave) return;
+    setUndoStack(prev => [
+      ...prev.slice(-29), // Keep up to 30 snapshots
+      { label, content: textToSave, timestamp: new Date().toISOString() }
+    ]);
+    setRedoStack([]); // Clear redo on fresh edit
+  };
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const lastItem = undoStack[undoStack.length - 1];
+    const newUndo = undoStack.slice(0, -1);
+    
+    // Push current state to redoStack
     if (article?.content) {
-      setContentHistory(prev => [...prev.slice(-9), { label, content: article.content, timestamp: new Date().toISOString() }]);
+      setRedoStack(prev => [
+        ...prev,
+        { label: `Before Undo: ${lastItem.label}`, content: article.content, timestamp: new Date().toISOString() }
+      ]);
+    }
+    setUndoStack(newUndo);
+    setArticle(prev => ({ ...prev, content: lastItem.content }));
+    saveArticle({ content: lastItem.content });
+    addToast(`Restored: ${lastItem.label}`, 'info');
+  }, [undoStack, article?.content]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const nextItem = redoStack[redoStack.length - 1];
+    const newRedo = redoStack.slice(0, -1);
+
+    if (article?.content) {
+      setUndoStack(prev => [
+        ...prev,
+        { label: `Before Redo: ${nextItem.label}`, content: article.content, timestamp: new Date().toISOString() }
+      ]);
+    }
+    setRedoStack(newRedo);
+    setArticle(prev => ({ ...prev, content: nextItem.content }));
+    saveArticle({ content: nextItem.content });
+    addToast(`Redone: ${nextItem.label}`, 'info');
+  }, [redoStack, article?.content]);
+
+  const handleRestoreRevision = (restoredContent, label) => {
+    if (article?.content) {
+      pushHistory(`Before Restore: ${label}`);
+    }
+    setArticle(prev => ({ ...prev, content: restoredContent }));
+    saveArticle({ content: restoredContent });
+    addToast(`Restored snapshot: ${label}`, 'success');
+  };
+
+  const handleClearHistory = () => {
+    if (confirm('Clear your revision history stack for this article?')) {
+      setUndoStack([]);
+      setRedoStack([]);
+      addToast('History cleared', 'info');
     }
   };
 
-  const handleUndo = () => {
-    if (contentHistory.length === 0) return;
-    const last = contentHistory[contentHistory.length - 1];
-    setContentHistory(prev => prev.slice(0, -1));
-    saveArticle({ content: last.content });
-    addToast(`Restored: ${last.label}`, 'info');
-  };
+  // Keyboard shortcut listener for Undo (Ctrl+Z) / Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if user is inside a separate modal input (except editor textarea)
+      if (diffModal.isOpen || showRevisionsModal || showExportModal) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (undoStack.length > 0) {
+          e.preventDefault();
+          handleUndo();
+        }
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.key === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))
+      ) {
+        if (redoStack.length > 0) {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack, redoStack, diffModal.isOpen, showRevisionsModal, showExportModal, handleUndo, handleRedo]);
 
   // ─── 1. NLP Semantic Engine ───
   const handleFetchNLPTerms = async () => {
@@ -287,7 +401,6 @@ export default function ContentEditor() {
         count = content.split(termLower).length - 1;
       }
 
-      // Check if found in headings for headings category
       let inHeading = false;
       if (item.category === 'headings') {
         inHeading = headingText.includes(termLower);
@@ -303,59 +416,59 @@ export default function ContentEditor() {
       return {
         ...item,
         current_count: count,
-        in_heading: inHeading,
-        status
+        status,
+        in_heading: inHeading
       };
     });
   }, [nlpTerms, article?.content]);
 
-  // Filtered NLP Terms
   const filteredNlpTerms = useMemo(() => {
     return analyzedNlpTerms.filter(item => {
-      if (nlpSearch && !item.term.toLowerCase().includes(nlpSearch.toLowerCase())) {
-        return false;
-      }
+      const matchesSearch = item.term.toLowerCase().includes(nlpSearch.toLowerCase());
+      if (!matchesSearch) return false;
       if (nlpFilter === 'all') return true;
-      if (nlpFilter === 'missing') return item.status === 'under';
+      if (nlpFilter === 'missing') return item.current_count === 0;
       return item.category === nlpFilter;
     });
-  }, [analyzedNlpTerms, nlpFilter, nlpSearch]);
+  }, [analyzedNlpTerms, nlpSearch, nlpFilter]);
 
-  // ─── 2. Competitor SERP Explorer ───
+  // ─── 2. Frase Competitor Outlines ───
   const handleFetchCompetitors = async () => {
     if (!project?.keyword) return;
     setLoadingCompetitors(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_URL}/serp/competitor-outlines`, {
+      const res = await axios.post(`${API_URL}/content/competitor-outlines`, {
         keyword: project.keyword,
         serp_data: article?.parsed_serp || {}
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       if (res.data.competitors) {
         setCompetitors(res.data.competitors);
+        addToast(`Loaded ${res.data.competitors.length} competitor outlines!`, 'success');
       }
     } catch (err) {
-      addToast('Failed to fetch competitor outlines', 'error');
+      addToast('Failed to load competitor outlines', 'error');
     } finally {
       setLoadingCompetitors(false);
     }
   };
 
-  const handleImportCompetitorHeading = (headingObj) => {
+  const handleImportCompetitorHeading = (heading) => {
+    const cleanHeading = heading.replace(/^#{1,3}\s+/, '').trim();
     const newSection = {
-      type: headingObj.type || 'h2',
-      heading: headingObj.heading,
+      type: 'h2',
+      heading: cleanHeading,
       target_words: 250,
-      notes: 'Imported from top competitor outline'
+      notes: 'Imported from competitor analysis'
     };
-    const updatedOutline = [...(article.outline || []), newSection];
-    setArticle(prev => ({ ...prev, outline: updatedOutline }));
-    saveArticle({ outline: updatedOutline });
-    addToast(`Added "${headingObj.heading}" to your outline!`, 'success');
+    const newOutline = [...(article?.outline || []), newSection];
+    setArticle(prev => ({ ...prev, outline: newOutline }));
+    saveArticle({ outline: newOutline });
+    addToast(`Added "${cleanHeading}" to outline!`, 'success');
   };
 
-  // ─── 3. Research & Statistics Vault ───
+  // ─── 3. Research Vault ───
   const handleFetchResearchVault = async () => {
     if (!project?.keyword) return;
     setLoadingResearch(true);
@@ -366,104 +479,79 @@ export default function ContentEditor() {
         serp_data: article?.parsed_serp || {}
       }, { headers: { Authorization: `Bearer ${token}` } });
 
-      if (res.data.research_items) {
-        setResearchItems(res.data.research_items);
+      if (res.data.research) {
+        setResearchItems(res.data.research);
+        addToast(`Found ${res.data.research.length} research nuggets & stats!`, 'success');
       }
     } catch (err) {
-      addToast('Failed to fetch research vault', 'error');
+      addToast('Failed to fetch research items', 'error');
     } finally {
       setLoadingResearch(false);
     }
   };
 
-  const handleInsertCitation = (item) => {
-    const citationMarkdown = `\n\n> **Key Statistic:** "${item.stat}" — *Source: [${item.source_name}](${item.source_url})*\n\n`;
-    insertTextAtCursor(citationMarkdown);
-    addToast('Inserted research citation into article!', 'success');
-  };
-
-  // ─── 4. Dynamic 0-100 Live Content Score Algorithm ───
+  // ─── 4. Real-time Content Score Calculator ───
   const contentScoreBreakdown = useMemo(() => {
     const content = article?.content || '';
-    const words = content.split(/\s+/).filter(Boolean).length;
+    const words = content.trim() ? content.trim().split(/\s+/).length : 0;
     const targetWords = project?.target_word_count || 1500;
+    
+    // Length score (0 - 25)
+    let lengthScore = Math.min(25, Math.round((words / targetWords) * 25));
+    if (words > targetWords * 1.5) lengthScore = 20;
 
-    // 1. Structure Score (Max 25)
-    let structureScore = 0;
-    const wordRatio = targetWords > 0 ? Math.min(1.2, words / targetWords) : 0;
-    structureScore += Math.round(wordRatio * 15); // up to 15 pts
-    const h2Count = (content.match(/^##\s+.+$/gm) || []).length;
-    const h3Count = (content.match(/^###\s+.+$/gm) || []).length;
-    if (h2Count >= 3) structureScore += 5;
-    else structureScore += h2Count * 1.5;
-    if (h3Count >= 2) structureScore += 5;
-    else structureScore += h3Count * 2.5;
-    structureScore = Math.min(25, Math.round(structureScore));
+    // Keyword density score (0 - 20)
+    const density = calcKeywordDensity(content, project?.keyword);
+    let densityScore = 0;
+    if (density >= 0.8 && density <= 2.2) densityScore = 20;
+    else if (density > 0 && density < 0.8) densityScore = Math.round((density / 0.8) * 20);
+    else if (density > 2.2 && density <= 3.0) densityScore = 12;
+    else densityScore = 5;
 
-    // 2. NLP Entity Coverage (Max 40)
+    // NLP coverage score (0 - 30)
     let nlpScore = 0;
     if (analyzedNlpTerms.length > 0) {
-      const optimalCount = analyzedNlpTerms.filter(t => t.status === 'optimal').length;
-      const partialCount = analyzedNlpTerms.filter(t => t.status === 'over' || (t.status === 'under' && t.current_count > 0)).length;
-      nlpScore = Math.round(((optimalCount + (partialCount * 0.5)) / analyzedNlpTerms.length) * 40);
+      const optimalOrUnder = analyzedNlpTerms.filter(t => t.current_count > 0).length;
+      nlpScore = Math.round((optimalOrUnder / analyzedNlpTerms.length) * 30);
     } else {
-      // Fallback: Primary density & secondary keyword coverage
-      const density = calcKeywordDensity(content, project?.keyword);
-      if (density >= 0.5 && density <= 2.5) nlpScore += 20;
-      else if (density > 0) nlpScore += 10;
-      const secKeywords = (article?.outline || []).flatMap(s => s.keywords_to_include || []);
-      const foundSec = secKeywords.filter(kw => content.toLowerCase().includes(kw.toLowerCase())).length;
-      if (secKeywords.length > 0) nlpScore += Math.round((foundSec / secKeywords.length) * 20);
+      nlpScore = 15;
     }
-    nlpScore = Math.min(40, Math.round(nlpScore));
 
-    // 3. Headings & Title Score (Max 15)
-    let headingScore = 0;
-    const h1Match = content.match(/^#\s+(.+)$/m);
-    if (h1Match && project?.keyword && h1Match[1].toLowerCase().includes(project.keyword.toLowerCase())) {
-      headingScore += 5;
-    } else if (h1Match) {
-      headingScore += 2;
-    }
-    const headingNlp = analyzedNlpTerms.filter(t => t.category === 'headings');
-    if (headingNlp.length > 0) {
-      const foundHeadings = headingNlp.filter(t => t.in_heading || t.current_count > 0).length;
-      headingScore += Math.round((foundHeadings / headingNlp.length) * 10);
-    } else if (h2Count >= 3) {
-      headingScore += 10;
-    }
-    headingScore = Math.min(15, Math.round(headingScore));
+    // Structure score (0 - 15)
+    const h2Count = (content.match(/^##\s+/gm) || []).length;
+    const h3Count = (content.match(/^###\s+/gm) || []).length;
+    let structureScore = 0;
+    if (h2Count >= 3) structureScore += 8;
+    else structureScore += h2Count * 2.5;
+    if (h3Count >= 2) structureScore += 7;
+    else structureScore += h3Count * 3.5;
+    structureScore = Math.min(15, Math.round(structureScore));
 
-    // 4. Readability Score (Max 10)
-    let readabilityScore = 0;
+    // Readability score (0 - 10)
     const readability = calcReadability(content);
-    if (readability.score >= 60) readabilityScore = 10;
-    else if (readability.score >= 45) readabilityScore = 7;
-    else if (readability.score >= 30) readabilityScore = 4;
-    else readabilityScore = 2;
+    let readabilityScore = 0;
+    if (readability.score >= 50 && readability.score <= 75) readabilityScore = 10;
+    else if (readability.score > 75) readabilityScore = 8;
+    else if (readability.score >= 35) readabilityScore = 6;
+    else readabilityScore = 3;
 
-    // 5. Meta & Schema (Max 10)
-    let metaScore = 0;
-    if (article?.meta_title && article.meta_title.length >= 30) metaScore += 4;
-    if (article?.meta_description && article.meta_description.length >= 80) metaScore += 4;
-    if (article?.faq_schema && article.faq_schema.length > 0) metaScore += 2;
-
-    const totalScore = Math.min(100, Math.max(0, structureScore + nlpScore + headingScore + readabilityScore + metaScore));
+    const totalScore = Math.min(100, lengthScore + densityScore + nlpScore + structureScore + readabilityScore);
 
     return {
       totalScore,
-      structureScore,
-      nlpScore,
-      headingScore,
-      readabilityScore,
-      metaScore,
-      h2Count,
-      h3Count,
       words,
       targetWords,
-      readability
+      density,
+      densityScore,
+      lengthScore,
+      nlpScore,
+      structureScore,
+      readabilityScore,
+      readability,
+      h2Count,
+      h3Count
     };
-  }, [article?.content, article?.meta_title, article?.meta_description, article?.faq_schema, analyzedNlpTerms, project]);
+  }, [article?.content, project?.keyword, project?.target_word_count, analyzedNlpTerms]);
 
   // ─── 5. Inline AI Writing Assistant ───
   const handleEditorSelect = () => {
@@ -481,10 +569,9 @@ export default function ContentEditor() {
     }
   };
 
-  const handleExecuteInlineAI = async (action, customPrompt) => {
+  const handleExecuteInlineAI = async (action, customPrompt, openInDiff = false) => {
     if (!selectedText || inlineLoading) return;
     setInlineLoading(true);
-    pushHistory(`Inline AI: ${action}`);
 
     try {
       const token = localStorage.getItem('token');
@@ -499,12 +586,47 @@ export default function ContentEditor() {
       const replacement = res.data.revised_text;
       if (replacement) {
         const fullContent = article?.content || '';
-        const newContent = fullContent.substring(0, selectionRange.start) + replacement + fullContent.substring(selectionRange.end);
-        setArticle(prev => ({ ...prev, content: newContent }));
-        saveArticle({ content: newContent });
-        setShowInlineAI(false);
-        setSelectedText('');
-        addToast('Inline edit applied!', 'success');
+        const currentSelection = { ...selectionRange };
+
+        if (openInDiff) {
+          // Open Side-by-Side Diff modal for selection
+          setDiffModal({
+            isOpen: true,
+            title: `Inline AI Review: ${action.replace(/_/g, ' ').toUpperCase()}`,
+            subtitle: `Inspect side-by-side diff of your selection before replacing or appending.`,
+            originalContent: selectedText,
+            newContent: replacement,
+            onAccept: (acceptedReplacement) => {
+              pushHistory(`Inline AI (${action})`);
+              const newContent = fullContent.substring(0, currentSelection.start) + acceptedReplacement + fullContent.substring(currentSelection.end);
+              setArticle(prev => ({ ...prev, content: newContent }));
+              saveArticle({ content: newContent });
+              setShowInlineAI(false);
+              setSelectedText('');
+              setDiffModal(prev => ({ ...prev, isOpen: false }));
+              addToast('Inline edit applied!', 'success');
+            },
+            onAppend: (appendedText) => {
+              pushHistory(`Inline AI Append (${action})`);
+              const newContent = fullContent.substring(0, currentSelection.end) + '\n\n' + appendedText + fullContent.substring(currentSelection.end);
+              setArticle(prev => ({ ...prev, content: newContent }));
+              saveArticle({ content: newContent });
+              setShowInlineAI(false);
+              setSelectedText('');
+              setDiffModal(prev => ({ ...prev, isOpen: false }));
+              addToast('Revision inserted below selection!', 'info');
+            }
+          });
+        } else {
+          // Direct apply with undo snapshot
+          pushHistory(`Inline AI: ${action}`);
+          const newContent = fullContent.substring(0, currentSelection.start) + replacement + fullContent.substring(currentSelection.end);
+          setArticle(prev => ({ ...prev, content: newContent }));
+          saveArticle({ content: newContent });
+          setShowInlineAI(false);
+          setSelectedText('');
+          addToast('Inline edit applied!', 'success');
+        }
       }
     } catch (err) {
       addToast('Inline AI failed to process', 'error');
@@ -523,6 +645,7 @@ export default function ContentEditor() {
     const selected = full.substring(start, end) || 'text';
     const replacement = `${prefix}${selected}${suffix}`;
     const newContent = full.substring(0, start) + replacement + full.substring(end);
+    pushHistory('Format Text');
     setArticle(prev => ({ ...prev, content: newContent }));
     saveArticle({ content: newContent });
     setTimeout(() => {
@@ -536,6 +659,7 @@ export default function ContentEditor() {
     const full = article?.content || '';
     if (!el) {
       const newContent = full + textToInsert;
+      pushHistory(`Inserted "${textToInsert}"`);
       setArticle(prev => ({ ...prev, content: newContent }));
       saveArticle({ content: newContent });
       return;
@@ -543,15 +667,18 @@ export default function ContentEditor() {
     const start = el.selectionStart || full.length;
     const end = el.selectionEnd || full.length;
     const newContent = full.substring(0, start) + textToInsert + full.substring(end);
+    pushHistory(`Inserted "${textToInsert}"`);
     setArticle(prev => ({ ...prev, content: newContent }));
     saveArticle({ content: newContent });
   };
 
-  // ─── Section Generation ───
+  // ─── Section Generation & 2-View Side-by-Side Diff Review ───
   const handleGenerateSection = async (section, index) => {
     if (generatingSection !== null) return;
-    const isRegen = article.content?.includes(section.heading);
-    if (isRegen) pushHistory(`Before re-generate: ${section.heading}`);
+    
+    const currentFullContent = article?.content || '';
+    const existingSlice = extractSectionSlice(currentFullContent, section.heading);
+    const isRegen = existingSlice !== null;
 
     setGeneratingSection(index);
     try {
@@ -575,8 +702,8 @@ export default function ContentEditor() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
-      let newContent = `\n\n${section.type === 'h1' ? '#' : section.type === 'h2' ? '##' : '###'} ${section.heading}\n\n`;
-      setArticle(prev => ({ ...prev, content: (prev.content || '') + newContent }));
+      const prefix = `${section.type === 'h1' ? '#' : section.type === 'h2' ? '##' : '###'} ${section.heading}\n\n`;
+      let generatedSectionText = prefix;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -586,17 +713,46 @@ export default function ContentEditor() {
           if (line.startsWith('data: ')) {
             const data = JSON.parse(line.slice(6));
             if (data.text) {
-              newContent += data.text;
-              setArticle(prev => ({ 
-                ...prev, 
-                content: prev.content.slice(0, prev.content.length - data.text.length) + data.text 
-              }));
+              generatedSectionText += data.text;
             }
           }
         }
       }
 
-      await saveArticle({ content: article.content + newContent });
+      if (isRegen) {
+        // TRIGGER SIDE-BY-SIDE DIFF REVIEW MODAL ("Two views to choose from")
+        setDiffModal({
+          isOpen: true,
+          title: `Diff Review: "${section.heading}"`,
+          subtitle: `Compare your existing draft section with the new AI generation before applying changes.`,
+          originalContent: existingSlice.originalText,
+          newContent: generatedSectionText.trim(),
+          onAccept: (acceptedContent) => {
+            pushHistory(`Regenerated: ${section.heading}`);
+            const before = currentFullContent.slice(0, existingSlice.startIndex);
+            const after = currentFullContent.slice(existingSlice.endIndex);
+            const updatedArticleContent = (before + acceptedContent + (after.startsWith('\n') ? after : (after ? '\n\n' + after : ''))).trim();
+            saveArticle({ content: updatedArticleContent });
+            setDiffModal(prev => ({ ...prev, isOpen: false }));
+            addToast(`Section "${section.heading}" replaced!`, 'success');
+          },
+          onAppend: (appendedContent) => {
+            pushHistory(`Appended revision: ${section.heading}`);
+            const before = currentFullContent.slice(0, existingSlice.endIndex);
+            const after = currentFullContent.slice(existingSlice.endIndex);
+            const updatedArticleContent = (before + '\n\n' + appendedContent + (after.startsWith('\n') ? after : (after ? '\n\n' + after : ''))).trim();
+            saveArticle({ content: updatedArticleContent });
+            setDiffModal(prev => ({ ...prev, isOpen: false }));
+            addToast(`Revision appended below "${section.heading}"!`, 'info');
+          }
+        });
+      } else {
+        // Fresh section: append directly
+        pushHistory(`Wrote Section: ${section.heading}`);
+        const updatedArticleContent = (currentFullContent ? currentFullContent + '\n\n' : '') + generatedSectionText.trim();
+        await saveArticle({ content: updatedArticleContent });
+        addToast(`Section "${section.heading}" added to draft!`, 'success');
+      }
     } catch (err) {
       addToast('Failed to generate section', 'error');
     } finally {
@@ -633,8 +789,8 @@ export default function ContentEditor() {
 
   const handleHumanize = async () => {
     if (!article.content) return;
-    if (!confirm('Rewrite the article with active voice and human pacing? Your current content will be backed up in history.')) return;
-    pushHistory('Before Humanize');
+    if (!confirm('Rewrite the article with active voice and human pacing? Your current draft will be backed up in revision history.')) return;
+    pushHistory('Before Humanize Full Draft');
     setHumanizing(true);
     try {
       const token = localStorage.getItem('token');
@@ -683,8 +839,8 @@ export default function ContentEditor() {
         content: article.content,
         meta_title: article.meta_title,
         meta_description: article.meta_description,
-        faq_schema: article.faq_schema,
-        article_schema: article.article_schema
+        faq_schema: article.faq_schema ? (typeof article.faq_schema === 'string' ? JSON.parse(article.faq_schema) : article.faq_schema) : [],
+        article_schema: article.article_schema ? (typeof article.article_schema === 'string' ? JSON.parse(article.article_schema) : article.article_schema) : null
       }, { 
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob' 
@@ -697,9 +853,9 @@ export default function ContentEditor() {
       document.body.appendChild(link);
       link.click();
       URL.revokeObjectURL(url);
-      addToast('Exported successfully', 'success');
+      addToast(`Exported as ${format.toUpperCase()}!`, 'success');
     } catch (err) {
-      addToast('Failed to export', 'error');
+      addToast(`Failed to export ${format.toUpperCase()}`, 'error');
     }
   };
 
@@ -818,46 +974,83 @@ export default function ContentEditor() {
           </div>
         </div>
         
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {contentHistory.length > 0 && (
-            <button className="btn btn-secondary" onClick={handleUndo} title={`Undo: ${contentHistory[contentHistory.length - 1]?.label}`}
-              style={{ color: '#F59E0B', borderColor: 'rgba(245,158,11,0.4)', padding: '8px 12px' }}>
-              <Undo2 size={15} /> Undo
+        {/* Top Action Buttons */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Undo / Redo controls */}
+          <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-base)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+            <button 
+              className="btn-icon" 
+              onClick={handleUndo} 
+              disabled={undoStack.length === 0}
+              title={undoStack.length > 0 ? `Undo (Ctrl+Z): ${undoStack[undoStack.length - 1]?.label}` : 'Undo (Ctrl+Z)'}
+              style={{ padding: '6px 8px', color: undoStack.length > 0 ? '#F59E0B' : 'var(--text-muted)' }}
+            >
+              <Undo2 size={15} />
             </button>
-          )}
+            <button 
+              className="btn-icon" 
+              onClick={handleRedo} 
+              disabled={redoStack.length === 0}
+              title={redoStack.length > 0 ? `Redo (Ctrl+Y): ${redoStack[redoStack.length - 1]?.label}` : 'Redo (Ctrl+Y)'}
+              style={{ padding: '6px 8px', color: redoStack.length > 0 ? '#38BDF8' : 'var(--text-muted)' }}
+            >
+              <Redo2 size={15} />
+            </button>
+          </div>
 
-          <button className="btn btn-secondary" onClick={() => handleExport('html')} disabled={!article.content} style={{ padding: '8px 12px' }}>
-            <Download size={15} /> HTML
-          </button>
-          <button className="btn btn-secondary" onClick={() => handleExport('docx')} disabled={!article.content} style={{ padding: '8px 12px' }}>
-            <Download size={15} /> DOCX
+          {/* History Timeline Modal Button */}
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setShowRevisionsModal(true)}
+            title="Inspect full revision timeline"
+            style={{ padding: '8px 12px', fontSize: '0.8rem', gap: '6px' }}
+          >
+            <History size={14} color="var(--primary-accent)" />
+            Revisions
+            {undoStack.length > 0 && (
+              <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(238,39,112,0.2)', color: 'var(--primary-accent)', fontWeight: 700 }}>
+                {undoStack.length}
+              </span>
+            )}
           </button>
 
+          {/* 1-Click Multi-Format Export Center Button */}
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setShowExportModal(true)}
+            disabled={!article.content} 
+            style={{ padding: '8px 12px', fontSize: '0.8rem', gap: '6px', color: '#38BDF8', borderColor: 'rgba(56,189,248,0.3)' }}
+          >
+            <Download size={14} /> Export Center
+          </button>
+
+          {/* Humanize Button */}
           <button 
             className="btn btn-secondary" 
             onClick={handleHumanize} 
             disabled={!article.content || humanizing || generatingSection !== null}
-            style={{ color: '#A78BFA', borderColor: 'rgba(167,139,250,0.4)', padding: '8px 12px' }}
+            style={{ color: '#A78BFA', borderColor: 'rgba(167,139,250,0.4)', padding: '8px 12px', fontSize: '0.8rem' }}
           >
             {humanizing 
-              ? <><RefreshCw size={15} className="spinner" style={{ border: 'none' }} /> Humanizing...</> 
-              : <><Sparkles size={15} /> Humanize</>}
+              ? <><RefreshCw size={14} className="spinner" style={{ border: 'none' }} /> Humanizing...</> 
+              : <><Sparkles size={14} /> Humanize</>}
           </button>
           
+          {/* Brand Audit Button */}
           <button 
             className="btn btn-secondary" 
             onClick={handleFactCheck} 
             disabled={!article.content || factChecking || !clientProfile}
-            style={{ color: '#38BDF8', borderColor: 'rgba(56,189,248,0.4)', padding: '8px 12px' }}
+            style={{ color: '#10B981', borderColor: 'rgba(16,185,129,0.3)', padding: '8px 12px', fontSize: '0.8rem' }}
           >
             {factChecking 
-              ? <><RefreshCw size={15} className="spinner" style={{ border: 'none' }} /> Checking...</> 
-              : <><ShieldCheck size={15} /> Brand Check</>}
+              ? <><RefreshCw size={14} className="spinner" style={{ border: 'none' }} /> Checking...</> 
+              : <><ShieldCheck size={14} /> Brand Check</>}
           </button>
 
-          <button className="btn btn-primary" onClick={handlePolish} disabled={!article.content || polishing} style={{ padding: '8px 16px' }}>
-            {polishing ? <RefreshCw size={15} className="spinner" style={{ border: 'none' }} /> : <CheckCircle size={15} />}
+          {/* Final Polish Button */}
+          <button className="btn btn-primary" onClick={handlePolish} disabled={!article.content || polishing} style={{ padding: '8px 16px', fontSize: '0.8rem' }}>
+            {polishing ? <RefreshCw size={14} className="spinner" style={{ border: 'none' }} /> : <CheckCircle size={14} />}
             Final Polish
           </button>
         </div>
@@ -870,7 +1063,7 @@ export default function ContentEditor() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
             
-            {/* TAB NAVIGATION */}
+            {/* TAB NAVIGATION ROW 1 */}
             <div style={{ 
               display: 'grid', 
               gridTemplateColumns: 'repeat(4, 1fr)', 
@@ -951,7 +1144,7 @@ export default function ContentEditor() {
               </button>
             </div>
 
-            {/* SECONDARY ROW OF TABS */}
+            {/* TAB NAVIGATION ROW 2 */}
             <div style={{ 
               display: 'grid', 
               gridTemplateColumns: 'repeat(4, 1fr)', 
@@ -1065,7 +1258,11 @@ export default function ContentEditor() {
                             {section.type || 'H2'} • ~{section.target_words || 200} words
                           </span>
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            {isGenerated && <span style={{ fontSize: '0.7rem', color: '#10B981' }}>✓ In Draft</span>}
+                            {isGenerated && (
+                              <span style={{ fontSize: '0.7rem', color: '#10B981', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Check size={12} /> In Draft
+                              </span>
+                            )}
                             <button onClick={() => removeOutlineSection(idx)} className="btn-icon" style={{ color: 'var(--text-muted)', padding: '2px' }}>
                               <Trash2 size={13} />
                             </button>
@@ -1101,15 +1298,17 @@ export default function ContentEditor() {
                             fontSize: '0.75rem', 
                             padding: '6px 10px', 
                             justifyContent: 'center',
-                            borderColor: isGenerated ? 'rgba(16,185,129,0.3)' : 'var(--border-color)'
+                            borderColor: isGenerated ? 'rgba(56,189,248,0.3)' : 'var(--border-color)',
+                            color: isGenerated ? '#38BDF8' : 'var(--text-main)'
                           }}
                           onClick={() => handleGenerateSection(section, idx)}
                           disabled={generatingSection !== null}
+                          title={isGenerated ? "Re-generate this section with side-by-side Diff comparison" : "Generate section with AI"}
                         >
                           {generatingSection === idx ? (
                             <><RefreshCw size={13} className="spinner" style={{ border: 'none' }} /> Writing...</>
                           ) : (
-                            <><Play size={13} fill="currentColor" /> {isGenerated ? 'Re-Generate Section' : 'Write Section'}</>
+                            <>{isGenerated ? <><Scale size={13} /> Re-Generate (Diff Review)</> : <><Play size={13} fill="currentColor" /> Write Section</>}</>
                           )}
                         </button>
                       </div>
@@ -1318,7 +1517,7 @@ export default function ContentEditor() {
                         const isExpanded = expandedCompetitor === idx;
                         return (
                           <div 
-                            key={idx}
+                            key={idx} 
                             style={{
                               background: 'var(--bg-base)',
                               borderRadius: 'var(--radius-sm)',
@@ -1348,49 +1547,46 @@ export default function ContentEditor() {
                                 }}>
                                   #{comp.rank || idx + 1}
                                 </span>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {comp.title}
-                                  </div>
-                                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                                    {comp.domain} • ~{comp.word_count || 1800} words
-                                  </div>
-                                </div>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>
+                                  {comp.domain || comp.title}
+                                </span>
                               </div>
-                              {isExpanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                             </div>
 
-                            {isExpanded && comp.outline && (
-                              <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                {comp.outline.map((headingObj, hIdx) => (
-                                  <div 
-                                    key={hIdx}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      padding: '6px 8px',
-                                      background: 'rgba(255,255,255,0.03)',
-                                      borderRadius: '4px',
-                                      paddingLeft: headingObj.type === 'h3' ? '20px' : '8px'
-                                    }}
-                                  >
-                                    <span style={{ fontSize: '0.75rem', color: '#F3F4F6' }}>
-                                      <strong style={{ color: headingObj.type === 'h3' ? '#A78BFA' : '#38BDF8', marginRight: '6px', fontSize: '0.65rem' }}>
-                                        {headingObj.type?.toUpperCase() || 'H2'}
-                                      </strong>
-                                      {headingObj.heading}
-                                    </span>
-                                    <button 
-                                      onClick={() => handleImportCompetitorHeading(headingObj)}
-                                      className="btn btn-secondary"
-                                      style={{ padding: '2px 6px', fontSize: '0.65rem' }}
-                                      title="Add this heading to your article outline"
+                            {isExpanded && (
+                              <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                  {comp.headings?.length || 0} headings detected • Click '+' to add to outline
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto' }}>
+                                  {comp.headings?.map((h, hIdx) => (
+                                    <div 
+                                      key={hIdx}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '6px 8px',
+                                        background: 'rgba(255,255,255,0.02)',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem'
+                                      }}
                                     >
-                                      <Plus size={11} /> Add
-                                    </button>
-                                  </div>
-                                ))}
+                                      <span style={{ color: '#D1D5DB', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {h}
+                                      </span>
+                                      <button 
+                                        onClick={() => handleImportCompetitorHeading(h)}
+                                        className="btn-icon" 
+                                        title="Import into your outline"
+                                        style={{ padding: '2px', color: '#10B981' }}
+                                      >
+                                        <Plus size={13} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1401,15 +1597,15 @@ export default function ContentEditor() {
                 </div>
               )}
 
-              {/* ─── TAB: FRASE RESEARCH & CITATIONS VAULT ─── */}
+              {/* ─── TAB: RESEARCH VAULT ─── */}
               {activeTab === 'research' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#F59E0B', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <BookOpen size={15} /> Research & Citations Vault
+                        <BookOpen size={15} /> SERP Research & Stats
                       </h4>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Verified stats for high E-E-A-T</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Verified facts & sources</span>
                     </div>
                     <button 
                       onClick={handleFetchResearchVault}
@@ -1425,72 +1621,52 @@ export default function ContentEditor() {
                   {loadingResearch ? (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                       <RefreshCw size={20} className="spinner" style={{ border: 'none', margin: '0 auto 8px' }} />
-                      Synthesizing industry statistics and data points...
+                      Synthesizing research stats & facts from top results...
                     </div>
                   ) : researchItems.length === 0 ? (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                      No research data points loaded yet.
+                      No research items extracted yet.
                       <div style={{ marginTop: '12px' }}>
                         <button className="btn btn-primary" onClick={handleFetchResearchVault} style={{ padding: '6px 12px', fontSize: '0.75rem' }}>
-                          🔬 Extract Research Citations
+                          🔬 Extract Facts & Stats
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {researchItems.map((item, idx) => (
                         <div 
                           key={idx}
                           style={{
-                            padding: '12px',
+                            padding: '10px 12px',
                             background: 'var(--bg-base)',
                             borderRadius: 'var(--radius-sm)',
                             border: '1px solid var(--border-color)',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '8px'
+                            gap: '6px'
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ 
-                              fontSize: '0.65rem', 
-                              fontWeight: 700, 
-                              textTransform: 'uppercase', 
-                              color: '#F59E0B',
-                              background: 'rgba(245,158,11,0.15)',
-                              padding: '2px 6px',
-                              borderRadius: '10px'
-                            }}>
-                              {item.type || 'Statistic'}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase' }}>
+                              {item.type || 'Fact'}
                             </span>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Source: <strong>{item.source_name || 'Industry Report'}</strong>
-                            </span>
+                            <button
+                              onClick={() => insertTextAtCursor(item.fact || item.text)}
+                              className="btn btn-secondary"
+                              style={{ padding: '2px 6px', fontSize: '0.68rem', color: '#F59E0B' }}
+                            >
+                              Insert
+                            </button>
                           </div>
-
-                          <div style={{ fontSize: '0.82rem', color: '#fff', fontWeight: 500, lineHeight: '1.4' }}>
-                            "{item.stat}"
-                          </div>
-
-                          {item.context && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              💡 {item.context}
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: '#F3F4F6', lineHeight: '1.4' }}>
+                            {item.fact || item.text}
+                          </p>
+                          {item.source && (
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span>Source: {item.source}</span>
                             </div>
                           )}
-
-                          <button 
-                            onClick={() => handleInsertCitation(item)}
-                            className="btn btn-secondary"
-                            style={{ 
-                              padding: '5px 10px', 
-                              fontSize: '0.72rem', 
-                              color: '#F59E0B', 
-                              borderColor: 'rgba(245,158,11,0.4)',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            <Quote size={12} /> Insert with Citation
-                          </button>
                         </div>
                       ))}
                     </div>
@@ -1498,93 +1674,72 @@ export default function ContentEditor() {
                 </div>
               )}
 
-              {/* ─── TAB: FULL 0-100 CONTENT SCORE ─── */}
+              {/* ─── TAB: CONTENT SCORE BREAKDOWN ─── */}
               {activeTab === 'score' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)' }}>
-                    <ScoreGauge score={contentScoreBreakdown.totalScore} size={84} strokeWidth={8} label="" />
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem' }}>
-                        {contentScoreBreakdown.totalScore >= 75 ? '🟢 Great Optimization' : contentScoreBreakdown.totalScore >= 50 ? '🟡 Moderate Quality' : '🔴 Needs Optimization'}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Calculated across structure, NLP semantic terms, heading keywords, readability & meta tags.
-                      </p>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 0' }}>
+                    <ScoreGauge score={contentScoreBreakdown.totalScore} size={110} strokeWidth={10} label="Overall Optimization Score" />
                   </div>
 
-                  {/* Category Breakdown Bars */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                        <span>Content Structure</span>
-                        <strong>{contentScoreBreakdown.structureScore} / 25 pts</strong>
+                    {/* Word Count */}
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                        <span>Content Length</span>
+                        <strong style={{ color: contentScoreBreakdown.lengthScore >= 20 ? '#10B981' : '#F59E0B' }}>
+                          {contentScoreBreakdown.words} / {contentScoreBreakdown.targetWords} words
+                        </strong>
                       </div>
-                      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--bg-base)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.structureScore / 25) * 100}%`, background: '#38BDF8' }} />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                        <span>NLP Semantic Terms</span>
-                        <strong>{contentScoreBreakdown.nlpScore} / 40 pts</strong>
-                      </div>
-                      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--bg-base)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.nlpScore / 40) * 100}%`, background: '#10B981' }} />
+                      <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, (contentScoreBreakdown.words / contentScoreBreakdown.targetWords) * 100)}%`, background: contentScoreBreakdown.lengthScore >= 20 ? '#10B981' : '#F59E0B', transition: 'width 0.3s ease' }} />
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                        <span>Headings & Title Keywords</span>
-                        <strong>{contentScoreBreakdown.headingScore} / 15 pts</strong>
+                    {/* Primary Keyword Density */}
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                        <span>Keyword Density ("{project.keyword}")</span>
+                        <strong style={{ color: contentScoreBreakdown.densityScore >= 18 ? '#10B981' : '#F59E0B' }}>
+                          {contentScoreBreakdown.density}% (Target: 1.0 - 2.0%)
+                        </strong>
                       </div>
-                      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--bg-base)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.headingScore / 15) * 100}%`, background: '#A78BFA' }} />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                        <span>Readability Grade ({contentScoreBreakdown.readability.grade})</span>
-                        <strong>{contentScoreBreakdown.readabilityScore} / 10 pts</strong>
-                      </div>
-                      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--bg-base)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.readabilityScore / 10) * 100}%`, background: '#F59E0B' }} />
+                      <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, (contentScoreBreakdown.density / 2.0) * 100)}%`, background: contentScoreBreakdown.densityScore >= 18 ? '#10B981' : '#F59E0B', transition: 'width 0.3s ease' }} />
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                        <span>Meta & Schema Completeness</span>
-                        <strong>{contentScoreBreakdown.metaScore} / 10 pts</strong>
+                    {/* NLP Coverage */}
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                        <span>NLP Entity Coverage</span>
+                        <strong style={{ color: contentScoreBreakdown.nlpScore >= 20 ? '#10B981' : '#F59E0B' }}>
+                          {contentScoreBreakdown.nlpScore}/30 pts
+                        </strong>
                       </div>
-                      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--bg-base)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.metaScore / 10) * 100}%`, background: '#EE2770' }} />
+                      <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${(contentScoreBreakdown.nlpScore / 30) * 100}%`, background: '#10B981', transition: 'width 0.3s ease' }} />
                       </div>
                     </div>
-                  </div>
 
-                  {/* Checklist */}
-                  <div style={{ marginTop: '8px', padding: '12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>
-                      📋 Optimization Checklist
+                    {/* Heading Structure */}
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                        <span>Headings Hierarchy</span>
+                        <strong style={{ color: contentScoreBreakdown.structureScore >= 12 ? '#10B981' : '#F59E0B' }}>
+                          {contentScoreBreakdown.h2Count} H2s, {contentScoreBreakdown.h3Count} H3s
+                        </strong>
+                      </div>
                     </div>
-                    <ul style={{ paddingLeft: '18px', fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <li style={{ color: contentScoreBreakdown.words >= contentScoreBreakdown.targetWords * 0.8 ? '#10B981' : 'inherit' }}>
-                        Reach target word count ({contentScoreBreakdown.words}/{contentScoreBreakdown.targetWords})
-                      </li>
-                      <li style={{ color: contentScoreBreakdown.h2Count >= 3 ? '#10B981' : 'inherit' }}>
-                        Include at least 3 to 6 H2 subheadings ({contentScoreBreakdown.h2Count} found)
-                      </li>
-                      <li style={{ color: analyzedNlpTerms.filter(t => t.status === 'optimal').length >= 10 ? '#10B981' : 'inherit' }}>
-                        Use key NLP semantic entities in optimal ranges
-                      </li>
-                      <li style={{ color: article.meta_title ? '#10B981' : 'inherit' }}>
-                        Generate Meta Title & Description via Final Polish
-                      </li>
-                    </ul>
+
+                    {/* Readability */}
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                        <span>Flesch Readability</span>
+                        <strong style={{ color: '#38BDF8' }}>
+                          {contentScoreBreakdown.readability.grade} ({contentScoreBreakdown.readability.score}/100)
+                        </strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1593,24 +1748,22 @@ export default function ContentEditor() {
               {activeTab === 'hooks' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#A78BFA' }}>Dynamic Intro Hooks</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#A78BFA' }}>Introduction Hooks</h4>
                     <button className="btn btn-secondary" onClick={handleGenerateHooks} disabled={generatingHooks} style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
-                      {generatingHooks ? <RefreshCw size={12} className="spinner" style={{ border: 'none' }} /> : 'Generate Hooks'}
+                      {generatingHooks ? 'Generating...' : 'Generate'}
                     </button>
                   </div>
+
                   {hooks && hooks.map((hook, i) => (
                     <div key={i} style={{ padding: '10px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#A78BFA', textTransform: 'uppercase' }}>{hook.style}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#fff', margin: '6px 0' }}>{hook.content}</div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#A78BFA', textTransform: 'uppercase', marginBottom: '4px' }}>{hook.style}</div>
+                      <p style={{ fontSize: '0.8rem', margin: 0, lineHeight: '1.4' }}>{hook.text}</p>
                       <button 
                         className="btn btn-secondary" 
-                        style={{ fontSize: '0.7rem', padding: '3px 8px' }}
-                        onClick={() => {
-                          insertTextAtCursor(`\n\n${hook.content}\n\n`);
-                          addToast('Hook inserted into draft!', 'success');
-                        }}
+                        onClick={() => insertTextAtCursor(hook.text + '\n\n')} 
+                        style={{ marginTop: '8px', fontSize: '0.7rem', padding: '3px 8px' }}
                       >
-                        Insert into Draft
+                        Insert at Cursor
                       </button>
                     </div>
                   ))}
@@ -1646,7 +1799,7 @@ export default function ContentEditor() {
                     <div>
                       <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FAQ Schema Generated</label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-                        {article.faq_schema.map((faq, i) => (
+                        {(typeof article.faq_schema === 'string' ? JSON.parse(article.faq_schema) : article.faq_schema).map((faq, i) => (
                           <div key={i} style={{ padding: '8px', background: 'var(--bg-base)', borderRadius: '4px', fontSize: '0.75rem' }}>
                             <strong>Q: {faq.question}</strong>
                             <p style={{ margin: '4px 0 0', color: 'var(--text-muted)' }}>{faq.answer}</p>
@@ -1795,7 +1948,7 @@ export default function ContentEditor() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '12px',
+              gap: '10px',
               flexWrap: 'wrap'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1808,35 +1961,50 @@ export default function ContentEditor() {
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button 
                   disabled={inlineLoading}
-                  onClick={() => handleExecuteInlineAI('expand')}
+                  onClick={() => handleExecuteInlineAI('expand', null, false)}
                   className="btn btn-secondary" 
                   style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#38BDF8' }}
+                  title="Expand selection with depth"
                 >
                   <Wand2 size={12} /> Expand
                 </button>
                 <button 
                   disabled={inlineLoading}
-                  onClick={() => handleExecuteInlineAI('shorten')}
+                  onClick={() => handleExecuteInlineAI('shorten', null, false)}
                   className="btn btn-secondary" 
                   style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#F59E0B' }}
+                  title="Make selection concise"
                 >
                   <Scissors size={12} /> Shorten
                 </button>
                 <button 
                   disabled={inlineLoading}
-                  onClick={() => handleExecuteInlineAI('add_stats')}
+                  onClick={() => handleExecuteInlineAI('add_stats', null, false)}
                   className="btn btn-secondary" 
                   style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#10B981' }}
+                  title="Inject industry statistics"
                 >
                   <TrendingUp size={12} /> Add Stats
                 </button>
                 <button 
                   disabled={inlineLoading}
-                  onClick={() => handleExecuteInlineAI('humanize')}
+                  onClick={() => handleExecuteInlineAI('humanize', null, false)}
                   className="btn btn-secondary" 
                   style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#A78BFA' }}
+                  title="Natural conversational human flow"
                 >
                   <Sparkles size={12} /> Humanize
+                </button>
+
+                {/* Compare in Diff button */}
+                <button 
+                  disabled={inlineLoading}
+                  onClick={() => handleExecuteInlineAI('rephrase', null, true)}
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#F43F5E', borderColor: 'rgba(244,63,94,0.4)' }}
+                  title="Rephrase & preview in side-by-side Diff Modal"
+                >
+                  <Scale size={12} /> Compare in Diff
                 </button>
 
                 {/* Custom Instruction Input */}
@@ -1846,7 +2014,7 @@ export default function ContentEditor() {
                   onChange={(e) => setCustomInlinePrompt(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && customInlinePrompt) {
-                      handleExecuteInlineAI('custom', customInlinePrompt);
+                      handleExecuteInlineAI('custom', customInlinePrompt, false);
                     }
                   }}
                   style={{
@@ -1862,7 +2030,7 @@ export default function ContentEditor() {
                 />
                 {customInlinePrompt && (
                   <button 
-                    onClick={() => handleExecuteInlineAI('custom', customInlinePrompt)}
+                    onClick={() => handleExecuteInlineAI('custom', customInlinePrompt, false)}
                     className="btn btn-primary"
                     style={{ padding: '4px 8px', fontSize: '0.72rem' }}
                   >
@@ -1914,13 +2082,49 @@ export default function ContentEditor() {
                 outline: 'none'
               }}
               value={article.content || ''}
-              onChange={(e) => saveArticle({ content: e.target.value })}
+              onChange={(e) => {
+                const updated = e.target.value;
+                setArticle(prev => ({ ...prev, content: updated }));
+                saveArticle({ content: updated });
+              }}
               placeholder="# Enter your article heading here...&#10;&#10;Click 'Write Section' in the sidebar or type freely. Highlight any text for instant Inline AI actions."
             />
           )}
         </div>
 
       </div>
+
+      {/* ─── MODAL 1: SIDE-BY-SIDE DIFF REVIEW ("Two views to choose from") ─── */}
+      <DiffReviewModal
+        isOpen={diffModal.isOpen}
+        title={diffModal.title}
+        subtitle={diffModal.subtitle}
+        originalContent={diffModal.originalContent}
+        newContent={diffModal.newContent}
+        onAccept={diffModal.onAccept}
+        onAppend={diffModal.onAppend}
+        onClose={() => setDiffModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* ─── MODAL 2: REVISION HISTORY TIMELINE ─── */}
+      <RevisionsModal
+        isOpen={showRevisionsModal}
+        history={undoStack}
+        currentContent={article.content || ''}
+        onRestore={handleRestoreRevision}
+        onClearHistory={handleClearHistory}
+        onClose={() => setShowRevisionsModal(false)}
+      />
+
+      {/* ─── MODAL 3: 1-CLICK MULTI-FORMAT EXPORT CENTER ─── */}
+      <ExportCenterModal
+        isOpen={showExportModal}
+        project={project}
+        article={article}
+        onClose={() => setShowExportModal(false)}
+        onExportDownload={handleExport}
+      />
+
     </div>
   );
 }

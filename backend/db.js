@@ -125,6 +125,20 @@ const SCHEMA = `
     content TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS topic_clusters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER,
+    pillar_keyword TEXT NOT NULL,
+    pillar_title TEXT,
+    search_intent TEXT DEFAULT 'informational',
+    target_word_count INTEGER DEFAULT 3000,
+    cluster_topics TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'planned',
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `;
 
 async function initDb() {
@@ -162,6 +176,10 @@ async function initDb() {
   addCol('clients', 'dos_and_donts', '[]');
   addCol('clients', 'good_examples', '[]');
   addCol('clients', 'bad_examples', '[]');
+  addCol('clients', 'brand_archetype', 'authoritative');
+  addCol('projects', 'target_publish_date', '');
+  addCol('projects', 'planned_notes', '');
+  addCol('projects', 'cluster_id', '');
   
   addCol('templates', 'target_word_count', '1500');
   addCol('templates', 'tone_of_voice', 'Professional');

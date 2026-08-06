@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, PenTool, Users, Archive, Settings, LogOut, FileText, Calendar, Layers } from 'lucide-react';
+import { LayoutDashboard, PenTool, Users, Archive, Settings, LogOut, FileText, Calendar, Layers, Compass } from 'lucide-react';
 
 export default function Layout({ onLogout }) {
   return (
@@ -18,6 +18,10 @@ export default function Layout({ onLogout }) {
           <NavLink to="/new" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <PenTool size={20} />
             New Content
+          </NavLink>
+          <NavLink to="/planner" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
+            <Compass size={20} />
+            Topic Strategy
           </NavLink>
           <NavLink to="/bulk" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
             <Layers size={20} />

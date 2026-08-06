@@ -8,6 +8,7 @@ import ClientManager from './pages/ClientManager';
 import ArticleLibrary from './pages/ArticleLibrary';
 import BulkGenerator from './pages/BulkGenerator';
 import ContentCalendar from './pages/ContentCalendar';
+import ContentPlanner from './pages/ContentPlanner';
 import Templates from './pages/Templates';
 import { ToastProvider } from './components/ToastContext';
 
@@ -38,6 +39,7 @@ function AnimatedRoutes() {
         <Route path="/" element={<Layout onLogout={() => {}} />}>
           <Route index element={<PageTransition><Dashboard /></PageTransition>} />
           <Route path="new" element={<PageTransition><BriefBuilder /></PageTransition>} />
+          <Route path="planner" element={<PageTransition><ContentPlanner /></PageTransition>} />
           <Route path="bulk" element={<PageTransition><BulkGenerator /></PageTransition>} />
           <Route path="calendar" element={<PageTransition><ContentCalendar /></PageTransition>} />
           <Route path="editor/:projectId" element={<PageTransition><ContentEditor /></PageTransition>} />
