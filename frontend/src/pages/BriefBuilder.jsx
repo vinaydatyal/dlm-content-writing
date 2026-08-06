@@ -17,12 +17,14 @@ export default function BriefBuilder() {
   const [templates, setTemplates] = useState([]);
   const [manualResearch, setManualResearch] = useState('');
   
-  // Form State
   const [keyword, setKeyword] = useState('');
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState('');
   const [contentType, setContentType] = useState('blog_post');
   const [targetUrl, setTargetUrl] = useState('');
+  const [targetWordCount, setTargetWordCount] = useState(1500);
+  const [toneOfVoice, setToneOfVoice] = useState('Professional');
+  const [formattingRules, setFormattingRules] = useState('');
   
   // Data State
   const [serpData, setSerpData] = useState(null);
@@ -40,9 +42,15 @@ export default function BriefBuilder() {
       if (tpl) {
         setContentType(tpl.type);
         setCustomInstructions(tpl.instructions);
+        setTargetWordCount(tpl.target_word_count || 1500);
+        setToneOfVoice(tpl.tone_of_voice || 'Professional');
+        setFormattingRules(tpl.formatting_rules || '');
       }
     } else {
       setCustomInstructions('');
+      setToneOfVoice('Professional');
+      setFormattingRules('');
+      setTargetWordCount(1500);
     }
   };
 
@@ -93,7 +101,8 @@ export default function BriefBuilder() {
           title,
           client_id: clientId || null,
           content_type: contentType,
-          target_url: contentType === 'content_refresh' ? targetUrl : ''
+          target_url: contentType === 'content_refresh' ? targetUrl : '',
+          target_word_count: targetWordCount
         }, { headers });
         setProjectId(projRes.data.id);
 
@@ -127,7 +136,10 @@ export default function BriefBuilder() {
           existing_content: serpData.existing_content || '',
           content_type: contentType,
           client_profile: clientProfile,
-          manual_research: manualResearch
+          manual_research: manualResearch,
+          target_word_count: targetWordCount,
+          tone_of_voice: toneOfVoice,
+          formatting_rules: formattingRules
         }, { headers });
         
         setBrief(briefRes.data.brief);
@@ -169,9 +181,14 @@ export default function BriefBuilder() {
       // Save final outline and redirect to editor
       setLoading(true);
       try {
+        const fullCustomInstructions = JSON.stringify({
+          instructions: customInstructions,
+          tone_of_voice: toneOfVoice,
+          formatting_rules: formattingRules
+        });
         await axios.put(`${API_URL}/projects/${projectId}/article`, {
           outline: JSON.stringify(outline),
-          custom_instructions: customInstructions,
+          custom_instructions: fullCustomInstructions,
           status: 'writing'
         }, { headers });
         navigate(`/editor/${projectId}`);

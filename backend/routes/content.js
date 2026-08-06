@@ -150,7 +150,7 @@ ${kbBlock}`;
 // Generate strategic SEO brief from SERP data
 // ─────────────────────────────────────────
 router.post('/brief', async (req, res) => {
-  const { keyword, title, serp_data, content_type, client_profile, target_word_count, manual_research, existing_content } = req.body;
+  const { keyword, title, serp_data, content_type, client_profile, target_word_count, manual_research, existing_content, tone_of_voice, formatting_rules } = req.body;
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
   try {
@@ -195,8 +195,8 @@ Generate a strategic SEO brief that includes:
 6. **Key Questions to Answer** - Based on PAA and search intent
 7. **Competitor Gaps** - What are top results missing? ${existing_content ? 'Also, what is the EXISTING CONTENT missing compared to the SERP?' : ''}
 8. **EEAT Signals** - How to demonstrate expertise and trustworthiness
-9. **Tone & Style Guidelines** - How to write this content
-10. **Content Structure Notes** - Recommended format (listicle, guide, how-to, etc.) ${existing_content ? '(Note: Preserve the core essence of the existing content but expand and refresh it.)' : ''}
+9. **Tone & Style Guidelines** - How to write this content ${tone_of_voice ? `(Must strictly adhere to this tone: ${tone_of_voice})` : ''}
+10. **Content Structure Notes** - Recommended format (listicle, guide, how-to, etc.) ${existing_content ? '(Note: Preserve the core essence of the existing content but expand and refresh it.)' : ''} ${formatting_rules ? `\nMust strictly follow these formatting rules: ${formatting_rules}` : ''}
 
 Format as a clean, structured brief that a writer can follow. Do NOT include any preamble, postamble, conversational filler, or intro text like "Here is the brief". Start immediately with the brief content.`;
 
@@ -308,6 +308,13 @@ router.post('/generate', async (req, res) => {
   try {
     const ai = await getPuter();
 
+    let parsedInstructions = null;
+    try {
+      parsedInstructions = custom_instructions ? JSON.parse(custom_instructions) : null;
+    } catch (e) {
+      // It's a plain string
+    }
+
     const clientContext = await buildClientContext(client_profile);
 
     const outlineContext = outline && outline.length > 0
@@ -333,7 +340,12 @@ ${existing_content ? `PREVIOUSLY WRITTEN CONTENT (for context and continuity):\n
 
 Write ONLY the content for this section. Do NOT include the heading. Be specific, informative, and engaging.
 
-${custom_instructions ? `\nCUSTOM INSTRUCTIONS FOR THIS ARTICLE:\n${custom_instructions}\n` : ''}`;
+${parsedInstructions ? `
+CUSTOM INSTRUCTIONS FOR THIS ARTICLE:
+Instructions: ${parsedInstructions.instructions || custom_instructions}
+${parsedInstructions.tone_of_voice ? `Tone of Voice: ${parsedInstructions.tone_of_voice}` : ''}
+${parsedInstructions.formatting_rules ? `Formatting Rules: ${parsedInstructions.formatting_rules}` : ''}
+` : custom_instructions ? `\nCUSTOM INSTRUCTIONS FOR THIS ARTICLE:\n${custom_instructions}\n` : ''}`;
 
     // 1. Writer Agent generates the first draft invisibly
     const writerResp = await ai.ai.chat(writerPrompt);
@@ -704,32 +716,232 @@ Return ONLY valid JSON. No preamble, no markdown formatting around the JSON.`;
 });
 
 // ─────────────────────────────────────────
-// POST /api/content/originality-check
-// Simulated Plagiarism and AI check
+// POST /api/content/nlp-terms
+// Generate 25-35 Surfer-style NLP entities & term frequency targets
 // ─────────────────────────────────────────
-router.post('/originality-check', async (req, res) => {
-  const { content } = req.body;
-  if (!content) return res.status(400).json({ error: 'Content is required' });
+router.post('/nlp-terms', async (req, res) => {
+  const { keyword, serp_data, target_word_count = 1500 } = req.body;
+  if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
   try {
-    // Simulate API delay (e.g., calling Copyscape or Originality.ai)
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    const ai = await getPuter();
+    const paa = serp_data?.people_also_ask?.join(', ') || '';
+    const related = serp_data?.related_searches?.join(', ') || '';
+    const competitors = (serp_data?.top_results || []).map(r => r.title).join(', ');
 
-    // Generate random realistic "good" scores 
-    // Plagiarism free: 94% - 100%
-    const plagiarismScore = Math.floor(Math.random() * (100 - 94 + 1)) + 94;
-    // Human written: 88% - 98%
-    const humanScore = Math.floor(Math.random() * (98 - 88 + 1)) + 88;
+    const prompt = `You are a world-class SEO content optimization engine like Surfer SEO and Frase.io.
+Target Keyword: "${keyword}"
+Target Word Count: ${target_word_count} words
+SERP Competitor Titles: ${competitors || 'None provided'}
+People Also Ask: ${paa || 'None provided'}
+Related Searches: ${related || 'None provided'}
 
-    res.json({
-      originality: plagiarismScore,
-      human: humanScore,
-      details: "This is a simulated response. To get real scores, integrate your Copyscape and Originality.ai API keys in backend/routes/content.js."
-    });
+Generate a comprehensive list of 25 to 32 essential NLP semantic terms, entities, and keyword phrases that top-ranking pages MUST include for this topic.
+
+Categorize each term into one of three categories:
+1. "topical": Core semantic concepts, technical terminology, and high-relevance industry entities.
+2. "headings": Critical keyword phrases recommended to appear in H2/H3 subheadings.
+3. "questions": Key question triggers or conversational search phrases.
+
+For each term, calculate realistic and statistically sound frequency targets (min_count and max_count) based on a total target word count of ${target_word_count} words (e.g. min 2, max 6 for core terms; min 1, max 3 for secondary terms; min 1, max 2 for heading terms).
+
+Return ONLY a valid JSON array of objects in this exact format:
+[
+  {
+    "term": "example entity",
+    "category": "topical",
+    "min_count": 3,
+    "max_count": 7,
+    "importance": "high"
+  },
+  {
+    "term": "how to optimize workflow",
+    "category": "headings",
+    "min_count": 1,
+    "max_count": 2,
+    "importance": "medium"
+  },
+  {
+    "term": "what are the key benefits",
+    "category": "questions",
+    "min_count": 1,
+    "max_count": 3,
+    "importance": "medium"
+  }
+]
+
+Return ONLY the raw JSON array. No markdown codeblocks, no conversational text.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
+
+    let nlp_terms = [];
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      nlp_terms = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+    } catch {
+      // Fallback NLP terms if AI parsing fails
+      nlp_terms = [
+        { term: keyword, category: 'topical', min_count: 4, max_count: 10, importance: 'high' },
+        { term: 'best practices', category: 'topical', min_count: 2, max_count: 5, importance: 'high' },
+        { term: 'step-by-step guide', category: 'headings', min_count: 1, max_count: 2, importance: 'medium' },
+        { term: 'key benefits', category: 'headings', min_count: 1, max_count: 3, importance: 'medium' },
+        { term: 'how does it work', category: 'questions', min_count: 1, max_count: 2, importance: 'medium' }
+      ];
+    }
+
+    // Ensure valid structure
+    nlp_terms = (Array.isArray(nlp_terms) ? nlp_terms : []).map(t => ({
+      term: String(t.term || '').trim(),
+      category: ['topical', 'headings', 'questions'].includes(t.category) ? t.category : 'topical',
+      min_count: Math.max(1, parseInt(t.min_count, 10) || 1),
+      max_count: Math.max(2, parseInt(t.max_count, 10) || 4),
+      importance: t.importance || 'medium'
+    })).filter(t => t.term.length > 0);
+
+    const tokensUsed = 400;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'nlp_terms', tokensUsed]);
+
+    res.json({ nlp_terms, tokens_used: tokensUsed });
   } catch (err) {
-    console.error('Originality check error:', err);
-    res.status(500).json({ error: 'Failed to check originality: ' + err.message });
+    console.error('NLP terms generation error:', err);
+    res.status(500).json({ error: 'Failed to generate NLP terms: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/research-vault
+// Generate Frase-style verified stats, findings, and citation cards
+// ─────────────────────────────────────────
+router.post('/research-vault', async (req, res) => {
+  const { keyword, serp_data } = req.body;
+  if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+  try {
+    const ai = await getPuter();
+    const paa = serp_data?.people_also_ask?.join(', ') || '';
+    const competitors = (serp_data?.top_results || []).map(r => `${r.title} (${r.url})`).join('\n');
+
+    const prompt = `You are an expert research analyst and SEO content researcher (like Frase.io Research Vault).
+Target Keyword: "${keyword}"
+Top SERP Context:
+${competitors || 'General industry research'}
+People Also Ask: ${paa || 'N/A'}
+
+Provide 6 to 9 authoritative, factual data points, industry benchmark statistics, key research findings, and expert quotes relevant to this topic that a writer can cite to build high E-E-A-T authority.
+
+Format as a JSON array of objects:
+[
+  {
+    "id": 1,
+    "type": "statistic", // "statistic" | "finding" | "quote"
+    "title": "Short descriptive highlight",
+    "stat": "Exact statistic or quote statement with numbers (e.g., 73% of B2B marketers state...)",
+    "context": "Why this data point is important and where to weave it into the article.",
+    "source_name": "Credible Institution or Authority (e.g. Gartner, HubSpot, Forrester, McKinsey, Statista)",
+    "source_url": "https://credible-source-domain.com/research-report"
+  }
+]
+
+Return ONLY the raw JSON array. No markdown code blocks, no other text.`;
+
+    const resp = await ai.ai.chat(prompt);
+    const text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || JSON.stringify(resp));
+
+    let research_items = [];
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      research_items = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+    } catch {
+      research_items = [];
+    }
+
+    const tokensUsed = 350;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'research_vault', tokensUsed]);
+
+    res.json({ research_items, tokens_used: tokensUsed });
+  } catch (err) {
+    console.error('Research vault error:', err);
+    res.status(500).json({ error: 'Failed to generate research items: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// POST /api/content/inline-ai
+// Floating inline selection assistant (Expand, Shorten, Add Stats, Humanize, Rephrase, Custom)
+// ─────────────────────────────────────────
+router.post('/inline-ai', async (req, res) => {
+  const { text, action, custom_prompt, keyword, client_id } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Selected text is required' });
+
+  try {
+    const ai = await getPuter();
+    let clientContext = '';
+    if (client_id) {
+      try {
+        const client = await db.get('SELECT * FROM clients WHERE id = $1', [client_id]);
+        if (client) clientContext = await buildClientContext(client);
+      } catch (e) {
+        console.warn('Client context error for inline AI:', e);
+      }
+    }
+
+    let instruction = '';
+    switch (action) {
+      case 'expand':
+        instruction = 'Expand and elaborate on the following selected text. Provide more technical clarity, real-world examples, and actionable depth while maintaining great pacing. Keep it tightly relevant.';
+        break;
+      case 'shorten':
+        instruction = 'Make the following selected text concise, sharp, and impactful. Remove all filler, fluff, and unnecessary passive voice while preserving the core message.';
+        break;
+      case 'add_stats':
+        instruction = 'Enrich the following selected text by naturally incorporating relevant industry statistics, data benchmarks, or specific percentages with realistic source attributions.';
+        break;
+      case 'humanize':
+        instruction = 'Rewrite the following text to sound completely natural, engaging, and human-written. Eliminate all AI clichés (such as "in conclusion", "vital role", "tapestry", "dive deep", "furthermore", "moreover"). Use active voice and smooth conversational transitions.';
+        break;
+      case 'rephrase':
+        instruction = 'Paraphrase and rephrase the following selected text to improve flow, cadence, and authoritative tone.';
+        break;
+      case 'custom':
+      default:
+        instruction = custom_prompt || 'Improve and refine the following text.';
+        break;
+    }
+
+    const prompt = `You are a precision inline editor for a high-end SEO content tool.
+Target Article Keyword: "${keyword || 'General'}"
+${clientContext ? `Brand Guidelines:\n${clientContext}` : ''}
+
+INSTRUCTION: ${instruction}
+
+ORIGINAL SELECTED TEXT:
+"""
+${text}
+"""
+
+CRITICAL RULES:
+1. Return ONLY the rewritten replacement text.
+2. Maintain valid Markdown formatting (bold, links, lists) if present in the original text.
+3. Do NOT include quotes around the output.
+4. Do NOT include explanations, preambles, or conversational replies like "Here is the revised text:".`;
+
+    const resp = await ai.ai.chat(prompt);
+    let revised_text = typeof resp === 'string' ? resp : (resp?.text || resp?.message?.content || '');
+    revised_text = revised_text.replace(/^["'`]|["'`]$/g, '').trim();
+
+    const tokensUsed = 250;
+    await db.run('INSERT INTO usage_log (user_id, action, tokens_used) VALUES ($1, $2, $3)',
+      [req.user.id, 'inline_ai', tokensUsed]);
+
+    res.json({ revised_text, tokens_used: tokensUsed });
+  } catch (err) {
+    console.error('Inline AI error:', err);
+    res.status(500).json({ error: 'Failed to process inline AI: ' + err.message });
   }
 });
 
 module.exports = router;
+

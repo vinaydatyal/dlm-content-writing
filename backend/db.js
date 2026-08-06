@@ -109,6 +109,9 @@ const SCHEMA = `
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     instructions TEXT,
+    target_word_count INTEGER DEFAULT 1500,
+    tone_of_voice TEXT DEFAULT 'Professional',
+    formatting_rules TEXT DEFAULT '',
     is_default BOOLEAN DEFAULT false,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -159,6 +162,10 @@ async function initDb() {
   addCol('clients', 'dos_and_donts', '[]');
   addCol('clients', 'good_examples', '[]');
   addCol('clients', 'bad_examples', '[]');
+  
+  addCol('templates', 'target_word_count', '1500');
+  addCol('templates', 'tone_of_voice', 'Professional');
+  addCol('templates', 'formatting_rules', '');
 
   saveDb();
   await seedTemplates();
@@ -234,25 +241,14 @@ async function seedTemplates() {
   if (parseInt(countRes.count) === 0) {
     console.log("Seeding default templates...");
     const PREDEFINED_TEMPLATES = [
-      { name: 'Standard Blog (Informational Intent)', type: 'blog_post', instructions: 'Write in a conversational but professional tone. Focus on directly answering the user query in the first 100 words.' },
-      { name: 'Skyscraper Content (High Competition)', type: 'blog_post', instructions: 'Write highly comprehensive 10x content. Include statistical data, expert quotes, and format heavily with tables, lists, and bold text.' },
-      { name: 'Niche Topic (Long-Tail Intent)', type: 'blog_post', instructions: 'Focus deeply on hyper-specific subtopics. Use secondary keywords naturally. Keep language highly technical and authoritative.' },
-      { name: 'Listicle / Top X (Discovery Intent)', type: 'blog_post', instructions: 'Keep each item concise. Highlight the unique selling point of each item. Optimize H3 tags for quick scanning.' },
-      { name: 'Step-by-Step Guide (How-To Intent)', type: 'blog_post', instructions: 'Break down every step logically. Use numbered lists where possible. Include "Prerequisites" or "What you need" sections.' },
-      { name: 'Product Page (Commercial Intent)', type: 'product_page', instructions: 'Focus heavily on benefits rather than just features. Use persuasive copywriting and end with a strong CTA.' },
-      { name: 'Product Review (Transactional Intent)', type: 'product_page', instructions: 'Be objective but persuasive. List clear pros and cons. Include a "Final Verdict" or "Who this is for" section.' },
-      { name: 'Product Comparison (Decision Intent)', type: 'product_page', instructions: 'Compare objectively across multiple dimensions. Emphasize differences in pricing, usability, and target audience.' },
-      { name: 'Local SEO (Hyper-Local Focus)', type: 'location_page', instructions: 'Mention specific neighborhoods, local landmarks, and proximity to major roads. Establish trust as a local authority.' },
-      { name: 'Local SEO (Broad City Service)', type: 'location_page', instructions: 'Focus on serving the entire metropolitan area. Detail service areas and incorporate broad geographic modifiers.' },
-      { name: 'Core Service (Conversion Focus)', type: 'service_page', instructions: 'Clearly define the problem it solves, the process, and include trust signals (testimonials/guarantees). Use a strong, conversion-focused CTA.' },
-      { name: 'Service Overview (Educational Focus)', type: 'service_page', instructions: 'Educate the reader on why they need this service. Break down industry jargon and outline the long-term ROI.' },
-      { name: 'Comprehensive Guide (Evergreen)', type: 'info_page', instructions: 'Provide in-depth, authoritative information designed to be evergreen. Use varied formatting, definitions, and extensive examples.' },
-      { name: 'FAQ / Glossary Hub', type: 'info_page', instructions: 'Format as direct Questions and Answers. Keep answers concise (under 50 words per answer) to target Featured Snippets.' },
+      { name: 'Standard Blog (Informational Intent)', type: 'blog_post', instructions: 'Focus on directly answering the user query in the first 100 words.', target_word_count: 1500, tone_of_voice: 'Conversational but professional', formatting_rules: 'Use short paragraphs, bullet points, and clear H2s.' },
+      { name: 'Skyscraper Content (High Competition)', type: 'blog_post', instructions: 'Write highly comprehensive 10x content. Include statistical data and expert quotes.', target_word_count: 2500, tone_of_voice: 'Authoritative and data-driven', formatting_rules: 'Format heavily with tables, lists, bold text, and nested H3s.' },
+      { name: 'Product Page (Commercial Intent)', type: 'product_page', instructions: 'Focus heavily on benefits rather than just features. End with a strong CTA.', target_word_count: 800, tone_of_voice: 'Persuasive and engaging', formatting_rules: 'Use short punchy sentences, highlight key benefits in bold.' }
     ];
     
     for (const tpl of PREDEFINED_TEMPLATES) {
-      run('INSERT INTO templates (name, type, instructions, is_default) VALUES (?, ?, ?, ?)',
-        [tpl.name, tpl.type, tpl.instructions, true]);
+      run('INSERT INTO templates (name, type, instructions, target_word_count, tone_of_voice, formatting_rules, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [tpl.name, tpl.type, tpl.instructions, tpl.target_word_count, tpl.tone_of_voice, tpl.formatting_rules, true]);
     }
   }
 }

@@ -15,6 +15,9 @@ export default function Templates() {
   const [name, setName] = useState('');
   const [type, setType] = useState('blog_post');
   const [instructions, setInstructions] = useState('');
+  const [targetWordCount, setTargetWordCount] = useState(1500);
+  const [toneOfVoice, setToneOfVoice] = useState('Professional');
+  const [formattingRules, setFormattingRules] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -40,6 +43,9 @@ export default function Templates() {
     setName(tpl.name);
     setType(tpl.type);
     setInstructions(tpl.instructions || '');
+    setTargetWordCount(tpl.target_word_count || 1500);
+    setToneOfVoice(tpl.tone_of_voice || 'Professional');
+    setFormattingRules(tpl.formatting_rules || '');
   };
 
   const resetForm = () => {
@@ -47,6 +53,9 @@ export default function Templates() {
     setName('');
     setType('blog_post');
     setInstructions('');
+    setTargetWordCount(1500);
+    setToneOfVoice('Professional');
+    setFormattingRules('');
   };
 
   const handleSubmit = async (e) => {
@@ -56,7 +65,14 @@ export default function Templates() {
     setIsSubmitting(true);
     const token = localStorage.getItem('token');
     const headers = { Authorization: `Bearer ${token}` };
-    const payload = { name, type, instructions };
+    const payload = { 
+      name, 
+      type, 
+      instructions,
+      target_word_count: targetWordCount,
+      tone_of_voice: toneOfVoice,
+      formatting_rules: formattingRules
+    };
 
     try {
       if (editingId) {
@@ -125,6 +141,10 @@ export default function Templates() {
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '16px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                 {tpl.instructions}
               </p>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                <div><strong>Words:</strong> {tpl.target_word_count}</div>
+                <div><strong>Tone:</strong> {tpl.tone_of_voice}</div>
+              </div>
               
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button 
@@ -198,8 +218,42 @@ export default function Templates() {
                   placeholder="Detailed instructions for the AI on how to structure and write this type of content..."
                   value={instructions}
                   onChange={(e) => setInstructions(e.target.value)}
-                  style={{ minHeight: '150px' }}
+                  style={{ minHeight: '100px' }}
                   required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="input-group">
+                  <label>Target Word Count *</label>
+                  <input 
+                    type="number" 
+                    className="input" 
+                    value={targetWordCount}
+                    onChange={(e) => setTargetWordCount(parseInt(e.target.value) || 1500)}
+                    required
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Tone of Voice</label>
+                  <input 
+                    type="text" 
+                    className="input" 
+                    placeholder="e.g. Professional, Conversational"
+                    value={toneOfVoice}
+                    onChange={(e) => setToneOfVoice(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label>Formatting Rules</label>
+                <textarea 
+                  className="input" 
+                  placeholder="e.g. Use short paragraphs, use bullet points, bold key terms."
+                  value={formattingRules}
+                  onChange={(e) => setFormattingRules(e.target.value)}
+                  style={{ minHeight: '60px' }}
                 />
               </div>
 
