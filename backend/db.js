@@ -236,21 +236,99 @@ function insert(sql, params = []) {
   return null;
 }
 
+const PREDEFINED_TEMPLATES = [
+  {
+    name: 'Standard Blog (Informational Intent)',
+    type: 'blog_post',
+    instructions: 'Directly answer the primary user query within the first 100 words to target Google Featured Snippet (Position Zero). Break down core concepts logically with clear H2 headings, real-world examples, and actionable takeaways.',
+    target_word_count: 1500,
+    tone_of_voice: 'Conversational, authoritative, and helpful',
+    formatting_rules: 'Use 2-3 sentence short paragraphs, bulleted lists for scannability, bold key concepts, and structured H2/H3 hierarchy.'
+  },
+  {
+    name: 'Skyscraper 10x Pillar Guide (High Competition)',
+    type: 'blog_post',
+    instructions: 'Create an exhaustive, definitive master guide that out-ranks top 10 SERP competitors. Cover foundational definitions, advanced strategies, historical context, step-by-step frameworks, data-backed insights, and future trends.',
+    target_word_count: 3000,
+    tone_of_voice: 'Deeply authoritative, data-driven, and thought-leadership oriented',
+    formatting_rules: 'Include comparison tables, statistical callout blocks, nested H3/H4 sub-sections, definition boxes, and comprehensive FAQ section.'
+  },
+  {
+    name: 'Head-to-Head Comparison & "VS" Breakdown',
+    type: 'blog_post',
+    instructions: 'Deliver an objective, balanced head-to-head evaluation between competitors or alternatives. Break down Core Features, Pricing, Ease of Use, Customer Support, and Pros & Cons. Provide a "Winner by Category" breakdown and definitive final recommendation by persona.',
+    target_word_count: 2000,
+    tone_of_voice: 'Objective, analytical, unbiased, and advisory',
+    formatting_rules: 'Use feature comparison tables, pros/cons bulleted lists, verdict scorecards, and clear recommendation callouts.'
+  },
+  {
+    name: 'Curated Round-Up & Listicle ("Top X for Y")',
+    type: 'blog_post',
+    instructions: 'Curate a standout list of top tools, services, or strategies. For each item: quick summary badge, who it is best for, standout features, pricing tier, and key trade-off/limitation. Open with evaluation methodology and quick comparison table.',
+    target_word_count: 2200,
+    tone_of_voice: 'Engaging, energetic, fast-paced, and highly practical',
+    formatting_rules: 'Quick-take overview table at top, numbered H2 sections for each item, "Best For" taglines, and key feature bullet points.'
+  },
+  {
+    name: 'Step-by-Step How-To Tutorial',
+    type: 'blog_post',
+    instructions: 'Guide the reader through solving a specific problem or achieving a goal from start to finish. Include Prerequisites/Tools Needed, sequential numbered steps with clear instructions, common pitfalls/troubleshooting tips, and verification checklists.',
+    target_word_count: 1800,
+    tone_of_voice: 'Instructive, supportive, clear, and action-oriented',
+    formatting_rules: 'Numbered step headings (Step 1, Step 2), highlighted warning/tip blockquotes, checklist summary at the end, and FAQ.'
+  },
+  {
+    name: 'Content Refresh & SEO Optimizer (Surfer/Frase Mode)',
+    type: 'content_refresh',
+    instructions: 'Audit and overhaul existing ranking content to reclaim lost traffic and rank for new SERP entities. Identify competitor content gaps, update outdated statistics with current data, incorporate missing NLP entities, and improve overall E-E-A-T depth without losing existing keyword rankings.',
+    target_word_count: 2000,
+    tone_of_voice: 'Modern, authoritative, polished, and fresh',
+    formatting_rules: 'Integrate new H2/H3 subtopics to fill competitor gaps, embed statistical citations with sources, and maintain readable 2-3 sentence paragraphs.'
+  },
+  {
+    name: 'Commercial Product Page (High Conversion)',
+    type: 'product_page',
+    instructions: 'Craft persuasive commercial copy tailored to high buyer intent. Lead with emotional hooks and core value propositions, articulate specific pain points, showcase product features translated directly into customer benefits, tackle common objections, and conclude with high-converting Call-to-Actions (CTAs).',
+    target_word_count: 1000,
+    tone_of_voice: 'Persuasive, customer-centric, punchy, and confident',
+    formatting_rules: 'Bold value propositions, short punchy benefit bullet points, testimonial/social proof placeholders, and prominent CTA anchors.'
+  },
+  {
+    name: 'Local SEO & Service Location Page',
+    type: 'location_page',
+    instructions: 'Target localized search intent for city/region-specific services. Highlight local presence, response time, service area coverage, licensed expertise, emergency availability, and localized customer testimonials. Answer location-specific FAQs.',
+    target_word_count: 1200,
+    tone_of_voice: 'Trustworthy, approachable, professional, and community-focused',
+    formatting_rules: 'Local landmark & service area bullet points, clear contact info CTA blocks, local review quotes, and localized schema-ready FAQ.'
+  },
+  {
+    name: 'B2B Enterprise Service Landing Page',
+    type: 'service_page',
+    instructions: 'Structure an authoritative B2B service offering. Explain the strategic methodology/process (Discovery, Strategy, Execution, Reporting), tangible business deliverables, target ROI, client qualification criteria, and case study proof points.',
+    target_word_count: 1500,
+    tone_of_voice: 'Corporate, executive, consultative, and results-driven',
+    formatting_rules: 'Process phase breakdown (Phase 1, Phase 2, Phase 3), deliverable summary tables, executive summary callouts, and schedule-a-call CTAs.'
+  },
+  {
+    name: 'Topic Cluster Anchor & Pillar Page',
+    type: 'info_page',
+    instructions: 'Create a foundational educational pillar designed to anchor a topic cluster and distribute internal page authority. Define core concepts thoroughly, map out all sub-disciplines, and provide contextual anchor links to spoke articles throughout the guide.',
+    target_word_count: 2500,
+    tone_of_voice: 'Educational, academic yet accessible, structured, and comprehensive',
+    formatting_rules: 'Table of contents anchor layout, glossary definition callout boxes, internal link anchor place-markers, and comprehensive reference citations.'
+  }
+];
+
 async function seedTemplates() {
-  const countRes = get('SELECT COUNT(*) as count FROM templates');
-  if (parseInt(countRes.count) === 0) {
-    console.log("Seeding default templates...");
-    const PREDEFINED_TEMPLATES = [
-      { name: 'Standard Blog (Informational Intent)', type: 'blog_post', instructions: 'Focus on directly answering the user query in the first 100 words.', target_word_count: 1500, tone_of_voice: 'Conversational but professional', formatting_rules: 'Use short paragraphs, bullet points, and clear H2s.' },
-      { name: 'Skyscraper Content (High Competition)', type: 'blog_post', instructions: 'Write highly comprehensive 10x content. Include statistical data and expert quotes.', target_word_count: 2500, tone_of_voice: 'Authoritative and data-driven', formatting_rules: 'Format heavily with tables, lists, bold text, and nested H3s.' },
-      { name: 'Product Page (Commercial Intent)', type: 'product_page', instructions: 'Focus heavily on benefits rather than just features. End with a strong CTA.', target_word_count: 800, tone_of_voice: 'Persuasive and engaging', formatting_rules: 'Use short punchy sentences, highlight key benefits in bold.' }
-    ];
-    
-    for (const tpl of PREDEFINED_TEMPLATES) {
+  console.log("Checking and syncing default templates...");
+  for (const tpl of PREDEFINED_TEMPLATES) {
+    const existing = get('SELECT id FROM templates WHERE name = ?', [tpl.name]);
+    if (!existing) {
       run('INSERT INTO templates (name, type, instructions, target_word_count, tone_of_voice, formatting_rules, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [tpl.name, tpl.type, tpl.instructions, tpl.target_word_count, tpl.tone_of_voice, tpl.formatting_rules, true]);
     }
   }
 }
 
-module.exports = { initDb, getDb, run, get, all, insert, saveDb };
+module.exports = { initDb, getDb, run, get, all, insert, saveDb, PREDEFINED_TEMPLATES };
+

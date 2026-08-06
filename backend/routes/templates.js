@@ -54,6 +54,31 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// POST /api/templates/reset-defaults
+router.post('/reset-defaults', async (req, res) => {
+  try {
+    const { PREDEFINED_TEMPLATES } = require('../db');
+    for (const tpl of PREDEFINED_TEMPLATES) {
+      const existing = await db.get('SELECT id FROM templates WHERE name = ?', [tpl.name]);
+      if (existing) {
+        await db.run(
+          `UPDATE templates SET type = ?, instructions = ?, target_word_count = ?, tone_of_voice = ?, formatting_rules = ?, is_default = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [tpl.type, tpl.instructions, tpl.target_word_count, tpl.tone_of_voice, tpl.formatting_rules, existing.id]
+        );
+      } else {
+        await db.run(
+          `INSERT INTO templates (name, type, instructions, target_word_count, tone_of_voice, formatting_rules, is_default) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [tpl.name, tpl.type, tpl.instructions, tpl.target_word_count, tpl.tone_of_voice, tpl.formatting_rules]
+        );
+      }
+    }
+    const templates = await db.all(`SELECT * FROM templates ORDER BY is_default DESC, name ASC`);
+    res.json({ success: true, message: 'Default templates restored successfully', templates });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reset default templates' });
+  }
+});
+
 // DELETE /api/templates/:id
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
@@ -71,3 +96,4 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
+

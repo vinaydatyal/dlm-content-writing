@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, Edit2, Loader, Save, X, LayoutTemplate } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader, Save, X, LayoutTemplate, RotateCcw } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -10,6 +10,7 @@ export default function Templates() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
+  const [isResetting, setIsResetting] = useState(false);
   
   // Form State
   const [name, setName] = useState('');
@@ -35,6 +36,23 @@ export default function Templates() {
       addToast('Failed to load templates', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetDefaults = async () => {
+    if (!confirm('This will restore and sync all 10 agency-grade default prompt templates (Standard Blog, Skyscraper 10x, Comparison VS, Listicles, How-To Tutorials, Content Refresh, Product Pages, Location Pages, Service Pages, Topic Pillars). Proceed?')) return;
+    setIsResetting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/templates/reset-defaults`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTemplates(res.data.templates);
+      addToast('Agency default templates restored successfully!', 'success');
+    } catch (err) {
+      addToast('Failed to restore default templates', 'error');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -122,8 +140,18 @@ export default function Templates() {
             <LayoutTemplate color="var(--primary-accent)" /> 
             Prompt Templates
           </h1>
-          <p style={{ color: 'var(--text-muted)' }}>Manage custom AI instructions for different content types.</p>
+          <p style={{ color: 'var(--text-muted)' }}>Manage custom AI prompt instructions, tones, and formatting rules for all content types.</p>
         </div>
+        <button
+          className="btn btn-secondary"
+          onClick={handleResetDefaults}
+          disabled={isResetting}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}
+          title="Restore and sync all 10 agency-grade default prompt templates"
+        >
+          {isResetting ? <Loader className="spinner" size={14} /> : <RotateCcw size={14} />}
+          Restore Agency Defaults
+        </button>
       </div>
 
       <div className="grid-sidebar">
@@ -204,12 +232,14 @@ export default function Templates() {
                   required
                 >
                   <option value="blog_post">Blog Post</option>
+                  <option value="content_refresh">Content Refresh (Optimizer)</option>
                   <option value="product_page">Product Page</option>
                   <option value="location_page">Location Page</option>
                   <option value="service_page">Service Page</option>
                   <option value="info_page">General Information Page</option>
                 </select>
               </div>
+
 
               <div className="input-group">
                 <label>AI Prompt Instructions *</label>
