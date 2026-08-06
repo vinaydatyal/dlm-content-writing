@@ -54,6 +54,26 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// POST /api/templates/duplicate/:id
+router.post('/duplicate/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const source = await db.get('SELECT * FROM templates WHERE id = ?', [id]);
+    if (!source) return res.status(404).json({ error: 'Source template not found' });
+
+    const newName = `${source.name} (Custom)`;
+    const newId = await db.insert(
+      `INSERT INTO templates (name, type, instructions, target_word_count, tone_of_voice, formatting_rules, is_default, created_by) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+      [newName, source.type, source.instructions, source.target_word_count, source.tone_of_voice, source.formatting_rules, req.user.id]
+    );
+
+    const duplicate = await db.get('SELECT * FROM templates WHERE id = ?', [newId]);
+    res.status(201).json(duplicate);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to duplicate template: ' + err.message });
+  }
+});
+
 // POST /api/templates/reset-defaults
 router.post('/reset-defaults', async (req, res) => {
   try {
@@ -73,7 +93,7 @@ router.post('/reset-defaults', async (req, res) => {
       }
     }
     const templates = await db.all(`SELECT * FROM templates ORDER BY is_default DESC, name ASC`);
-    res.json({ success: true, message: 'Default templates restored successfully', templates });
+    res.json({ success: true, message: 'Agency default templates synced successfully', templates });
   } catch (err) {
     res.status(500).json({ error: 'Failed to reset default templates' });
   }
@@ -86,7 +106,6 @@ router.delete('/:id', async (req, res) => {
   try {
     const existing = await db.get('SELECT * FROM templates WHERE id = ?', [id]);
     if (!existing) return res.status(404).json({ error: 'Template not found' });
-    if (existing.is_default) return res.status(403).json({ error: 'Cannot delete default templates' });
 
     await db.run('DELETE FROM templates WHERE id = ?', [id]);
     res.json({ success: true });
