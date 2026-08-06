@@ -12,7 +12,7 @@ let isProcessing = false;
 // GET /api/bulk/:client_id
 router.get('/:client_id', async (req, res) => {
   try {
-    const jobs = await db.all('SELECT * FROM bulk_jobs WHERE client_id = $1 ORDER BY created_at DESC', [req.params.client_id]);
+    const jobs = await db.all('SELECT * FROM bulk_jobs WHERE client_id = ? ORDER BY created_at DESC', [req.params.client_id]);
     res.json(jobs.map(j => ({ ...j, items: JSON.parse(j.items || '[]') })));
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch bulk jobs' });
@@ -25,14 +25,13 @@ router.post('/', async (req, res) => {
   if (!items || !items.length) return res.status(400).json({ error: 'Items required' });
 
   try {
-    // Determine the base API URL (for local self-requests)
     const port = process.env.PORT || 3001;
     const baseUrl = `http://localhost:${port}/api`;
 
     // Create bulk job
     const jobId = await db.insert(
-      'INSERT INTO bulk_jobs (name, client_id, total, items, created_by) VALUES ($1, $2, $3, $4, $5)',
-      [name || 'Bulk Job', client_id, items.length, JSON.stringify(items), req.user.id]
+      'INSERT INTO bulk_jobs (name, client_id, total, items, created_by) VALUES (?, ?, ?, ?, ?)',
+      [name || 'Bulk Job', client_id || null, items.length, JSON.stringify(items), req.user.id]
     );
 
     res.json({ success: true, job_id: jobId });
@@ -57,7 +56,7 @@ async function processQueue(baseUrl, clientId) {
       if (!job) break;
       
       if (job.status === 'pending') {
-        await db.run('UPDATE bulk_jobs SET status = "processing" WHERE id = $1', [job.id]);
+        await db.run('UPDATE bulk_jobs SET status = "processing" WHERE id = ?', [job.id]);
       }
       
       const items = JSON.parse(job.items || '[]');
@@ -74,26 +73,32 @@ async function processQueue(baseUrl, clientId) {
             client_id: clientId,
             keyword: item.keyword,
             target_url: item.target_url || '',
-            content_type: item.target_url ? 'content_refresh' : 'blog_post'
+            content_type: item.contentType || (item.target_url ? 'content_refresh' : 'blog_post')
           });
           const projectId = projRes.data.id;
+          item.projectId = projectId;
           
           // 2. SERP Analysis
           const serpRes = await axios.post(`${baseUrl}/serp/analyze`, {
             keyword: item.keyword,
             target_url: item.target_url || '',
-            content_type: item.target_url ? 'content_refresh' : 'blog_post'
+            content_type: item.contentType || (item.target_url ? 'content_refresh' : 'blog_post')
           });
           
-          const clientRes = await axios.get(`${baseUrl}/clients/${clientId}`);
-          const clientProfile = clientRes.data;
+          let clientProfile = {};
+          if (clientId) {
+            try {
+              const clientRes = await axios.get(`${baseUrl}/clients/${clientId}`);
+              clientProfile = clientRes.data || {};
+            } catch (e) {}
+          }
           
           // 3. Brief
           const briefRes = await axios.post(`${baseUrl}/content/brief`, {
             keyword: item.keyword,
             serp_data: serpRes.data,
             existing_content: serpRes.data.existing_content || '',
-            content_type: item.target_url ? 'content_refresh' : 'blog_post',
+            content_type: item.contentType || (item.target_url ? 'content_refresh' : 'blog_post'),
             client_profile: clientProfile
           });
           const brief = briefRes.data.brief;
@@ -121,7 +126,7 @@ async function processQueue(baseUrl, clientId) {
              let sectionContent = await new Promise((resolve, reject) => {
                let text = '';
                genRes.data.on('data', chunk => {
-                 const lines = chunk.toString().split('\\n\\n');
+                 const lines = chunk.toString().split('\n\n');
                  for (const line of lines) {
                    if (line.startsWith('data: ')) {
                      try {
@@ -159,16 +164,16 @@ async function processQueue(baseUrl, clientId) {
           });
           
           item.status = 'completed';
-          await db.run('UPDATE bulk_jobs SET completed = completed + 1, items = $1 WHERE id = $2', [JSON.stringify(items), job.id]);
+          await db.run('UPDATE bulk_jobs SET completed = completed + 1, items = ? WHERE id = ?', [JSON.stringify(items), job.id]);
           
         } catch (itemErr) {
           console.error(`[BULK] Error processing item ${item.keyword}:`, itemErr.message);
           item.status = 'failed';
-          await db.run('UPDATE bulk_jobs SET failed = failed + 1, items = $1 WHERE id = $2', [JSON.stringify(items), job.id]);
+          await db.run('UPDATE bulk_jobs SET failed = failed + 1, items = ? WHERE id = ?', [JSON.stringify(items), job.id]);
         }
       }
       
-      await db.run('UPDATE bulk_jobs SET status = "completed" WHERE id = $1', [job.id]);
+      await db.run('UPDATE bulk_jobs SET status = "completed" WHERE id = ?', [job.id]);
     }
   } catch (err) {
     console.error('[BULK] Queue processor crashed:', err);

@@ -14,18 +14,20 @@ router.get('/', async (req, res) => {
     if (client_id) {
       projects = await db.all(
         `SELECT p.*, c.name as client_name, c.color as client_color,
-         a.id as article_id, a.word_count, a.status as article_status
+         a.id as article_id, a.word_count, a.status as article_status, 
+         a.meta_title, a.meta_description, a.readability_score
          FROM projects p
          LEFT JOIN clients c ON p.client_id = c.id
          LEFT JOIN articles a ON a.project_id = p.id
-         WHERE p.client_id = $1
+         WHERE p.client_id = ?
          ORDER BY p.created_at DESC`,
         [client_id]
       );
     } else {
       projects = await db.all(
         `SELECT p.*, c.name as client_name, c.color as client_color,
-         a.id as article_id, a.word_count, a.status as article_status
+         a.id as article_id, a.word_count, a.status as article_status,
+         a.meta_title, a.meta_description, a.readability_score
          FROM projects p
          LEFT JOIN clients c ON p.client_id = c.id
          LEFT JOIN articles a ON a.project_id = p.id
@@ -160,11 +162,65 @@ router.put('/:id/article', async (req, res) => {
       ]
     );
 
-    res.json({ success: true });
+// Clone / Duplicate project
+router.post('/:id/duplicate', async (req, res) => {
+  try {
+    const orig = await db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!orig) return res.status(404).json({ error: 'Project not found' });
+
+    const origArticle = await db.get('SELECT * FROM articles WHERE project_id = ?', [req.params.id]);
+
+    const newKeyword = `${orig.keyword} (Copy)`;
+    const newProjectId = await db.insert(
+      `INSERT INTO projects (client_id, keyword, secondary_keywords, content_type, target_url, target_word_count, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        orig.client_id,
+        newKeyword,
+        orig.secondary_keywords,
+        orig.content_type,
+        orig.target_url,
+        orig.target_word_count,
+        'draft',
+        req.user.id
+      ]
+    );
+
+    if (origArticle) {
+      await db.insert(
+        `INSERT INTO articles (project_id, serp_data, brief, outline, content, meta_title, meta_description, faq_schema, internal_links, word_count, readability_score, keyword_density, custom_instructions, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newProjectId,
+          origArticle.serp_data,
+          origArticle.brief,
+          origArticle.outline,
+          origArticle.content,
+          origArticle.meta_title ? `${origArticle.meta_title} (Copy)` : '',
+          origArticle.meta_description,
+          origArticle.faq_schema,
+          origArticle.internal_links,
+          origArticle.word_count,
+          origArticle.readability_score,
+          origArticle.keyword_density,
+          origArticle.custom_instructions,
+          'draft'
+        ]
+      );
+    } else {
+      await db.insert('INSERT INTO articles (project_id) VALUES (?)', [newProjectId]);
+    }
+
+    const newProject = await db.get('SELECT * FROM projects WHERE id = ?', [newProjectId]);
+    res.status(201).json({
+      ...newProject,
+      secondary_keywords: JSON.parse(newProject.secondary_keywords || '[]'),
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update article' });
+    console.error('Duplicate project error:', err);
+    res.status(500).json({ error: 'Failed to duplicate project' });
   }
 });
 
 module.exports = router;
+
