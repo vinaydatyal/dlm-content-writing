@@ -36,30 +36,71 @@ app.get('/api/health', (req, res) => {
 app.get('/api/stats', require('./middleware/auth').authenticate, async (req, res) => {
   try {
     const db = require('./db');
-    const [clientsRes, projectsRes, articlesRes, weekRes, wordsRes, tokensRes, recentRes] = await Promise.all([
+    const [
+      clientsRes, 
+      projectsRes, 
+      articlesRes, 
+      weekRes, 
+      wordsRes, 
+      tokensRes, 
+      recentRes,
+      statusCounts,
+      typeCounts,
+      topClients
+    ] = await Promise.all([
       db.get('SELECT COUNT(*) as count FROM clients'),
       db.get('SELECT COUNT(*) as count FROM projects'),
       db.get('SELECT COUNT(*) as count FROM articles'),
-      db.get("SELECT COUNT(*) as count FROM articles WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'"),
+      db.get("SELECT COUNT(*) as count FROM articles WHERE created_at >= datetime('now', '-7 days')"),
       db.get('SELECT COALESCE(SUM(word_count), 0) as total FROM articles'),
-      db.get('SELECT COALESCE(SUM(tokens_used), 0) as total FROM usage_log WHERE user_id = $1', [req.user.id]),
+      db.get('SELECT COALESCE(SUM(tokens_used), 0) as total FROM usage_log WHERE user_id = ?', [req.user.id]),
       db.all(
-        `SELECT p.*, c.name as client_name, c.color as client_color, a.word_count, a.status as article_status
+        `SELECT p.*, c.name as client_name, c.color as client_color, a.word_count, a.status as article_status, a.id as article_id
          FROM projects p
          LEFT JOIN clients c ON p.client_id = c.id
          LEFT JOIN articles a ON a.project_id = p.id
-         ORDER BY p.created_at DESC LIMIT 5`
+         ORDER BY p.created_at DESC LIMIT 10`
+      ),
+      db.all('SELECT status, COUNT(*) as count FROM projects GROUP BY status'),
+      db.all('SELECT content_type, COUNT(*) as count FROM projects GROUP BY content_type'),
+      db.all(
+        `SELECT c.id, c.name, c.color, COUNT(p.id) as project_count
+         FROM clients c
+         LEFT JOIN projects p ON p.client_id = c.id
+         GROUP BY c.id ORDER BY project_count DESC LIMIT 5`
       )
     ]);
 
+    const statusMap = { brief: 0, outline: 0, draft: 0, review: 0, completed: 0 };
+    (statusCounts || []).forEach(row => {
+      if (row.status && statusMap[row.status] !== undefined) {
+        statusMap[row.status] = parseInt(row.count || 0, 10);
+      }
+    });
+
+    const typeMap = {};
+    (typeCounts || []).forEach(row => {
+      if (row.content_type) {
+        typeMap[row.content_type] = parseInt(row.count || 0, 10);
+      }
+    });
+
+    const totalWords = parseInt(wordsRes?.total || 0, 10);
+    // Average agency writing speed ~ 400 words per hour
+    const hoursSaved = Math.round((totalWords / 400) * 10) / 10;
+
     const stats = {
-      total_clients: parseInt(clientsRes.count || 0, 10),
-      total_projects: parseInt(projectsRes.count || 0, 10),
-      total_articles: parseInt(articlesRes.count || 0, 10),
-      articles_this_week: parseInt(weekRes.count || 0, 10),
-      total_words: parseInt(wordsRes.total || 0, 10),
-      tokens_used: parseInt(tokensRes.total || 0, 10),
-      recent_projects: recentRes,
+      total_clients: parseInt(clientsRes?.count || 0, 10),
+      total_projects: parseInt(projectsRes?.count || 0, 10),
+      total_articles: parseInt(articlesRes?.count || 0, 10),
+      articles_this_week: parseInt(weekRes?.count || 0, 10),
+      total_words: totalWords,
+      hours_saved: hoursSaved,
+      tokens_used: parseInt(tokensRes?.total || 0, 10),
+      status_breakdown: statusMap,
+      type_breakdown: typeMap,
+      top_clients: topClients || [],
+      recent_projects: recentRes || [],
     };
     res.json(stats);
   } catch (err) {
